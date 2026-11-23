@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Uma Run Sprite Mode</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+/* VOICE occasion: a bright, cute endless runner
+   IDEA the original Uma Run, seen from above as a pixel diorama that turns with every corner
+   PICTURE the whole screen is the game: sprite-stacked temple causeway, runner, monkeys, obstacles
+   COLOUR biome grounds lead; Uma pink #ff6aa8 for buttons and highlights, white HUD text with dark edge
+   TYPE Fredoka 600/700 for everything
+   LAYOUT full-screen canvas; HUD top corners, banners centred, menus as one centred card; same on a phone */
+:root{color-scheme:dark;--pink:#ff6aa8;--ink:#1d1630}
+*{box-sizing:border-box;min-width:0}
+html,body{margin:0;height:100%;background:#0e1a12;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none}
+body{font:600 16px/1.3 Fredoka,system-ui,sans-serif;color:#fff}
+canvas{position:fixed;inset:0;width:100%;height:100%;image-rendering:pixelated;display:block}
+.hud{position:fixed;left:0;right:0;top:0;display:flex;justify-content:space-between;align-items:flex-start;padding:max(12px,env(safe-area-inset-top)) 14px 0;pointer-events:none}
+.stat{text-shadow:0 2px 0 rgba(0,0,0,.55),0 0 6px rgba(0,0,0,.35)}
+.dist{font-size:clamp(28px,6vw,40px);font-weight:700;line-height:1}
+.sub{display:flex;gap:12px;align-items:center;margin-top:4px;font-size:18px}
+.carrot{display:inline-flex;align-items:center;gap:6px}
+.carrot i{display:inline-block;width:12px;height:16px;background:linear-gradient(#52c83a 0 30%,#ff8a1e 30%);clip-path:polygon(15% 0,85% 0,85% 30%,60% 100%,40% 100%,15% 30%);}
+.chips{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+.chip{font-size:13px;padding:3px 9px;border-radius:999px;background:rgba(0,0,0,.42)}
+.right{display:flex;flex-direction:column;align-items:flex-end;gap:8px;pointer-events:auto}
+.best{font-size:14px;opacity:.9}
+.pbtn{width:44px;height:44px;border-radius:12px;border:0;background:rgba(0,0,0,.38);color:#fff;font:700 18px Fredoka,sans-serif;cursor:pointer}
+.banner{position:fixed;left:50%;top:24%;transform:translate(-50%,-50%);font-size:clamp(20px,5vw,34px);font-weight:700;text-align:center;white-space:nowrap;padding:8px 18px;border-radius:14px;background:rgba(0,0,0,.35);text-shadow:0 2px 0 rgba(0,0,0,.6);opacity:0;transition:opacity .25s;pointer-events:none;max-width:94vw;overflow:hidden;text-overflow:ellipsis}
+.banner.on{opacity:1}
+.banner.bad{color:#ffd0d8;background:rgba(120,10,30,.55)}
+.banner.hell{color:#ffe0a0;background:rgba(140,30,0,.6)}
+.banner.ice{color:#e8fbff;background:rgba(20,80,140,.55)}
+.banner.good{color:#fff;background:rgba(255,106,168,.6)}
+.turn{position:fixed;left:50%;top:38%;transform:translate(-50%,-50%);font-size:clamp(24px,6vw,40px);font-weight:700;color:#ffe27a;text-shadow:0 3px 0 rgba(0,0,0,.6);opacity:0;pointer-events:none}
+.turn.on{opacity:1;animation:pulse .5s ease-in-out infinite alternate}
+@keyframes pulse{to{transform:translate(-50%,-50%) scale(1.08)}}
+.screen{position:fixed;inset:0;display:grid;place-items:center;padding:16px;pointer-events:none}
+.card{pointer-events:auto;width:min(420px,100%);background:rgba(255,255,255,.96);color:var(--ink);border-radius:22px;padding:22px 22px 18px;box-shadow:0 10px 0 rgba(0,0,0,.25);text-align:center}
+.card h1{margin:0;font-size:clamp(38px,9vw,52px);line-height:1;letter-spacing:-.01em;color:var(--pink);text-shadow:0 3px 0 #b8336f}
+.card h2{margin:0;font-size:clamp(24px,6vw,32px);line-height:1.05;color:#c8264f}
+.card .tag{margin:6px 0 14px;font-size:16px;color:#5a4c78}
+.go{width:100%;min-height:54px;border:0;border-radius:16px;background:var(--pink);color:#fff;font:700 22px Fredoka,sans-serif;box-shadow:0 5px 0 #b8336f;cursor:pointer}
+.go:active{transform:translateY(3px);box-shadow:0 2px 0 #b8336f}
+.go:focus-visible,.pbtn:focus-visible{outline:3px solid #ffe27a;outline-offset:3px}
+.keys{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 12px;margin:14px 0 4px;font-size:14px;color:#3d3358;text-align:left}
+.keys b{display:inline-block;min-width:4.6em;color:#1d1630}
+.score{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:14px 0}
+.score div{background:#f4eefa;border-radius:12px;padding:8px 4px}
+.score b{display:block;font-size:22px;color:#1d1630;white-space:nowrap}
+.score span{font-size:13px;color:#5a4c78}
+.newbest{color:#ff6aa8;font-weight:700;margin:-4px 0 10px}
+.small{font-size:13px;color:#6c5f88;margin-top:10px}
+.hidden{display:none!important}
+.err{position:fixed;left:8px;bottom:8px;right:8px;color:#fff;background:#a01830;padding:8px;border-radius:8px;font:13px system-ui;display:none}
+@media(prefers-reduced-motion:reduce){.turn.on{animation:none}}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="hud" id="hud">
+  <div class="stat">
+    <div class="dist" id="dist">0 m</div>
+    <div class="sub"><span class="carrot"><i></i><span id="coins">0</span></span></div>
+    <div class="chips" id="chips"></div>
+  </div>
+  <div class="right">
+    <button class="pbtn" id="pause" aria-label="Pause">II</button>
+    <div class="best stat" id="bestHud"></div>
+  </div>
+</div>
+<div class="banner" id="banner"></div>
+<div class="turn" id="turn"></div>
+<div class="screen" id="start">
+  <div class="card">
+    <h1>Uma Run</h1>
+    <p class="tag">Temple of Mambo, sprite mode</p>
+    <button class="go" id="goBtn">Run!</button>
+    <div class="keys">
+      <div><b>← →</b> lanes, turns</div><div><b>Swipe</b> lanes, turns</div>
+      <div><b>↑ / Space</b> jump</div><div><b>Swipe up</b> jump</div>
+      <div><b>↓</b> slide</div><div><b>Swipe down</b> slide</div>
+    </div>
+    <p class="small" id="bestStart"></p>
+  </div>
+</div>
+<div class="screen hidden" id="over">
+  <div class="card">
+    <h2 id="overTitle">Caught!</h2>
+    <div class="score">
+      <div><b id="oDist">0 m</b><span>distance</span></div>
+      <div><b id="oCoins">0</b><span>carrots</span></div>
+      <div><b id="oBest">0 m</b><span>best</span></div>
+    </div>
+    <p class="newbest hidden" id="newBest">New best run!</p>
+    <button class="go" id="againBtn">Run again</button>
+    <p class="small">Space or tap to run again</p>
+  </div>
+</div>
+<div class="screen hidden" id="paused">
+  <div class="card"><h2>Paused</h2><p class="tag">Take a breath, the monkeys are waiting.</p><button class="go" id="resumeBtn">Keep running</button></div>
+</div>
+<div class="err" id="err"></div>
+<script>
+{
+// ============================================================ constants (from uma-run.html)
+const S = 0.3, SQ = 0.75;                        // metres per art pixel, camera pitch squash
+const LANE = 2.2, HW = 3.7, W = HW * 2, XMAX = 3.1;
+const GRAV = 26, JUMPV = 9.4, SLIDE = 0.8, BASE_SPEED = 12, MAX_SPEED = 30, LAT_SPEED = 9, SPEED_RAMP = 0.0055;
+const HELL_D = 5000, BIOME_MIN = 3000, BIOME_MAX = 7000, WY = -0.55, RAMP = 6, MAG_R = 9;
+const PU_DUR = {magnet: 6, shield: 8, x2: 10};
+const speedAt = d => Math.min(MAX_SPEED, BASE_SPEED + Math.max(0, d) * SPEED_RAMP);
+const turnWin = v => Math.max(7, v * 0.42);
+const segMinLen = v => Math.ceil(Math.max(32, v * 1.6 + turnWin(v) + 6));
+const rand = (a, b) => a + Math.random() * (b - a);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const $ = id => document.getElementById(id);
+const SKIN = {jungle: 'jungle', hell: 'inferno', ice: 'tundra'};
+const HASH = location.hash.slice(1);
+const AUTO = HASH === 'autopilot' || HASH.startsWith('autopilot-');
+const START_D = (m => m ? +m[1] : 0)(HASH.match(/start-(\d+)/));
+addEventListener('error', e => { const d = $('err'); d.style.display = 'block'; d.textContent = 'Error: ' + e.message; });
+
+// ============================================================ biome schedule: jungle 0-5k, Inferno 5-10k, jungle 10-12k, tundra 12k+, then shuffled
+let biomeB, biomeK, biomeBag;
+function biomeRoll(){ biomeB = [HELL_D, 2 * HELL_D, 2 * HELL_D + 2000]; biomeK = ['jungle', 'hell', 'jungle', 'ice']; biomeBag = []; }
+function biomePick(){ if (!biomeBag.length) { biomeBag = ['jungle', 'hell', 'ice'].sort(() => Math.random() - .5); if (biomeBag[0] === biomeK[biomeK.length - 1]) biomeBag.push(biomeBag.shift()); } return biomeBag.shift(); }
+function biomeExt(d){ while (biomeB[biomeB.length - 1] <= d + 1000) { biomeB.push(biomeB[biomeB.length - 1] + Math.round(rand(BIOME_MIN, BIOME_MAX))); biomeK.push(biomePick()); } }
+function biomeAt(d){ biomeExt(d); let n = 0; for (const b of biomeB) if (b <= d) n++; return biomeK[n]; }
+function biomeNext(d){ biomeExt(d); for (const b of biomeB) if (b > d) return b; return Infinity; }
+
+// ============================================================ sprites: strips -> cached frames (rotate about the exact centre, squash, lift, outline once)
+let SPR = {};
+const cache = new Map(), STEPS = 128;
+function hexRgb(c){ const n = parseInt(c.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; }
+function frame(key, ang){
+  const k = ((Math.round(ang / (Math.PI * 2) * STEPS) % STEPS) + STEPS) % STEPS, id = key + '|' + k;
+  let f = cache.get(id); if (f) return f;
+  const m = SPR[key], img = m.img, w = m.sliceWidth, h = m.sliceHeight, n = m.slices, a = k / STEPS * Math.PI * 2;
+  const diag = Math.ceil(Math.hypot(w, h)) + 2, cw = diag + 6, ch = Math.ceil(diag * SQ) + n + 6, ox = cw >> 1, base = ch - 3 - Math.ceil(diag * SQ / 2);
+  const body = document.createElement('canvas'); body.width = cw; body.height = ch;
+  const g = body.getContext('2d'); g.imageSmoothingEnabled = false;
+  for (let z = 0; z < n; z++) { g.setTransform(1, 0, 0, 1, ox, base - z); g.scale(1, SQ); g.rotate(a); g.drawImage(img, z * w, 0, w, h, -w / 2, -h / 2, w, h); }
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  const d = g.getImageData(0, 0, cw, ch), p = d.data, ol = m.ol, sol = new Uint8Array(cw * ch);
+  for (let i = 0; i < cw * ch; i++) { if (p[i * 4 + 3] > 127) { sol[i] = 1; p[i * 4 + 3] = 255; } else p[i * 4 + 3] = 0; }
+  for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) { const i = y * cw + x; if (sol[i]) continue;
+    if ((x > 0 && sol[i - 1]) || (x < cw - 1 && sol[i + 1]) || (y > 0 && sol[i - cw]) || (y < ch - 1 && sol[i + cw])) { p[i * 4] = ol[0]; p[i * 4 + 1] = ol[1]; p[i * 4 + 2] = ol[2]; p[i * 4 + 3] = 255; } }
+  g.putImageData(d, 0, 0);
+  const sh = document.createElement('canvas'); sh.width = cw; sh.height = ch; const s = sh.getContext('2d'); s.imageSmoothingEnabled = false;
+  for (let z = 0; z < Math.min(n, 3); z++) { s.setTransform(1, 0, 0, 1, ox + 2, base + 2); s.scale(1, SQ); s.rotate(a); s.drawImage(img, z * w, 0, w, h, -w / 2, -h / 2, w, h); }
+  s.setTransform(1, 0, 0, 1, 0, 0); s.globalCompositeOperation = 'source-in'; s.fillStyle = 'rgba(10,20,30,.3)'; s.fillRect(0, 0, cw, ch);
+  f = {body, sh, ox, base}; if (cache.size > 6000) cache.clear(); cache.set(id, f); return f;
+}
+// pickup icons (the game draws these as billboards too)
+function icon(type){
+  const c = document.createElement('canvas'); c.width = c.height = 11; const g = c.getContext('2d');
+  const px = (x, y, col) => { g.fillStyle = col; g.fillRect(x, y, 1, 1); };
+  const ring = (col) => { for (let y = 0; y < 11; y++) for (let x = 0; x < 11; x++) { const r = Math.hypot(x - 5, y - 5); if (r < 5.4) px(x, y, r > 4.4 ? '#ffffff' : col); } };
+  if (type === 'magnet') { ring('#ff4d6a'); for (const [x, y] of [[3,3],[3,4],[3,5],[3,6],[4,7],[5,7],[6,7],[7,6],[7,5],[7,4],[7,3]]) px(x, y, '#fff'); px(3, 3, '#cfd6e0'); px(7, 3, '#cfd6e0'); }
+  else if (type === 'shield') { ring('#2fb8ff'); for (const [x, y] of [[3,3],[4,3],[5,3],[6,3],[7,3],[3,4],[7,4],[3,5],[7,5],[4,6],[6,6],[5,7]]) px(x, y, '#fff'); }
+  else { ring('#ff8a1e'); for (const [x, y] of [[2,4],[4,4],[3,5],[2,6],[4,6],[6,4],[7,4],[8,4],[8,5],[7,5],[6,6],[6,7],[7,7],[8,7]]) px(x, y, '#fff'); }
+  return c;
+}
+const ICON = {magnet: icon('magnet'), shield: icon('shield'), x2: icon('x2')};
+
+// ============================================================ track
+const DIRS = {'0': [0, -1], '1': [1, 0], '-1': [-1, 0]};
+let segments = [], segHist = [], riverNextD = 620, P, cam, state = 'start', time = 0;
+function pickSegLen(d0, noShort){
+  const v = speedAt(d0 + 60), minL = segMinLen(v), kinds = {short: .3, med: .42, long: .28};
+  const range = {short: [minL, minL + 18], med: [Math.max(minL + 24, 78), 140], long: [220, 420]};
+  const a = segHist[segHist.length - 2], b = segHist[segHist.length - 1], ban = new Set();
+  if (a && b && a.k === b.k) ban.add(a.k); if (noShort) ban.add('short');
+  const ks = Object.keys(kinds).filter(x => !ban.has(x)), tot = ks.reduce((t, x) => t + kinds[x], 0);
+  let r = Math.random() * tot, k = ks[ks.length - 1]; for (const x of ks) if ((r -= kinds[x]) < 0) { k = x; break; }
+  let L = Math.round(rand(...range[k]));
+  const rem = biomeNext(d0 + .5) - d0;
+  if (rem >= minL && (L >= rem || rem - L < segMinLen(speedAt(d0 + rem + 60)))) L = rem;
+  return {k, L, minL};
+}
+function makeSegment(prev){
+  const g = {props: [], obstacles: [], coins: [], pickups: [], gaps: []};
+  if (!prev) { g.sx = 0; g.sz = 0; g.h = 0; g.L = 120; g.d0 = START_D - 6; g.first = true; g.kind = 'med'; g.a0 = -25; }
+  else { g.sx = prev.sx + prev.dx * prev.L; g.sz = prev.sz + prev.dz * prev.L; g.h = prev.h + prev.turn; g.d0 = prev.d0 + prev.L; g.a0 = -HW;
+    const pk = pickSegLen(g.d0, prev.first); g.L = pk.L; g.kind = pk.k; g.minL = pk.minL; }
+  g.biome = biomeAt(g.d0 + .5);
+  g.gate = prev ? g.biome !== prev.biome : g.biome !== 'jungle';
+  const nb = biomeNext(g.d0 + .5); if (g.d0 + g.L > nb && nb - g.d0 >= (g.minL || 40)) g.L = nb - g.d0;
+  if (prev && g.biome === 'jungle' && !prev.first && g.d0 + 30 >= riverNextD && biomeNext(g.d0 + .5) > g.d0 + g.L + 1) {   // a river on this straight
+    const rLen = Math.round(78 + Math.min(72, g.d0 * .012) + rand(-8, 8)), r0 = 32, r1 = r0 + rLen;
+    const v = speedAt(g.d0 + r1 + 40), gr = Math.max(20, Math.ceil(speedAt(g.d0 + r1) * 2.5));
+    g.L = Math.max(g.L, Math.ceil(r1 + RAMP + gr + 16), Math.ceil(r1 + RAMP + 14 + turnWin(v) + v * .9));
+    g.river = {r0, r1, rA: r0 - RAMP, rB: r1 + RAMP, g: gr};
+    riverNextD = g.d0 + g.river.rB + Math.max(480, 1050 - g.d0 * .06) * rand(.85, 1.15);
+  }
+  segHist.push({k: g.kind, L: g.L}); if (segHist.length > 4) segHist.shift();
+  g.turn = g.h === 0 ? (Math.random() < .5 ? -1 : 1) : -g.h;
+  [g.dx, g.dz] = DIRS[g.h]; g.rx = -g.dz; g.rz = g.dx; g.th = g.h * Math.PI / 2;
+  g.ter = g.biome === 'jungle' ? HW + 9.7 : HW + 2.9;
+  buildObstacles(g); buildCoins(g); buildProps(g, prev);
+  g.props = g.props.filter(p => !p.drop);
+  // v42-style corridor clearance: no decoration may stand in (or loom over) a neighbouring straight's run corridor
+  for (const o of [prev, prev && prev.prevSeg].filter(Boolean)) { clearCorridor(o, g); clearCorridor(g, o); }
+  g.prevSeg = prev || null;
+  return g;
+}
+function buildObstacles(g){
+  const L = g.L, RV = g.river, spd = Math.max(P ? P.speed : BASE_SPEED, BASE_SPEED);
+  let s = g.first ? 42 : 24;
+  while (s < L - 16) {
+    if (RV && s > RV.rA - 9 && s < RV.rB + RV.g) { s = RV.rB + RV.g; continue; }
+    const r = Math.random(); let o;
+    if (r < .17) { const len = rand(3, 4.2); o = {type: 'gap', s0: s, s1: s + len}; g.gaps.push([s, s + len]); }
+    else if (r < .37) o = {type: 'root', s0: s - .35, s1: s + .35};
+    else if (r < .57) o = {type: 'arch', s0: s - .4, s1: s + .4};
+    else if (r < .67) o = {type: 'barrier', s0: s - .4, s1: s + .4};
+    else { const n = Math.random() < .55 ? 1 : 2; o = {type: 'wall', s0: s - .5, s1: s + .5, lanes: [-1, 0, 1].sort(() => Math.random() - .5).slice(0, n)}; }
+    o.s = s; g.obstacles.push(o); s = o.s1 + rand(13, 22) + spd * .4;
+  }
+  if (RV) {                                                         // rocks in the river: tall ones to dodge, low wide ones to hop
+    const hard = clamp(g.d0 / 6000, 0, 1);
+    for (let s2 = RV.r0 + 14; s2 < RV.r1 - 8; s2 += rand(14, 20) - hard * 3) {
+      const o = {type: 'rock', s: s2, s0: s2 - .5, s1: s2 + .5, rocks: []};
+      if (Math.random() < .35) { const c = Math.random() < .5 ? -1 : 1; o.rocks.push({x: c * LANE / 2, hw: 2.4, h: .55, low: true}); }
+      else for (const l of [-1, 0, 1].sort(() => Math.random() - .5).slice(0, Math.random() < .5 + hard * .3 ? 2 : 1)) o.rocks.push({x: l * LANE, hw: .95, h: 1.25});
+      g.obstacles.push(o);
+    }
+    g.obstacles.sort((a, b) => a.s - b.s);
+  }
+}
+function buildCoins(g){
+  const RV = g.river, GAP = 2.6, add = (s, x, y) => g.coins.push({s, x, y, taken: false});
+  let cur = g.first ? 14 : HW + 6;
+  for (const o of g.obstacles) {
+    if (o.type === 'rock') { const used = o.rocks.map(k => k.x), free = [-1, 0, 1].map(l => l * LANE).filter(x => o.rocks.every(k => k.low ? true : Math.abs(x - k.x) > 1)), a = Math.max(cur, o.s0 - 13, RV.r0 + 3), b = o.s0 - 1.5;
+      if (free.length && b - a > 4 && Math.random() < .8) { const x = free[Math.random() * free.length | 0]; for (let c = a; c <= b; c += GAP) add(c, x, .45); } cur = o.s1 + 2; continue; }
+    if (RV && cur < RV.rB && o.s0 > RV.rB) cur = RV.rB + 2;
+    const b = o.s0 - 3;
+    if (b - cur > 6 && Math.random() < .85) {
+      const free = o.type === 'wall' ? [-1, 0, 1].filter(l => !o.lanes.includes(l)) : [-1, 0, 1];
+      const endX = free[Math.random() * free.length | 0] * LANE, a = Math.max(cur, b - 18), kind = Math.random(), startX = kind < .3 ? endX : rand(-XMAX + .3, XMAX - .3);
+      for (let c = a; c <= b; c += GAP) { const t = (c - a) / Math.max(1, b - a); add(c, kind < .3 ? endX : clamp(lerp(startX, endX, t) + (kind > .6 ? Math.sin(t * Math.PI * 2) * 1.6 * (1 - t) : 0), -XMAX, XMAX), .8); }
+    }
+    if ((o.type === 'gap' || o.type === 'barrier' || o.type === 'root') && Math.random() < .6) { const x = rand(-XMAX + .4, XMAX - .4), a = o.s0 - 2.5, e = o.s1 + 2.5; for (let i = 0; i <= 3; i++) { const t = i / 3; add(a + (e - a) * t, x, .8 + 1.4 * Math.sin(Math.PI * t)); } }
+    cur = o.s1 + 3;
+  }
+  if (RV && cur < RV.rB && g.L - HW - 5 > RV.rB) cur = RV.rB + 2;
+  if (g.L - HW - 5 - cur > 6) { const x = rand(-2.5, 2.5); for (let c = cur; c < Math.min(g.L - HW - 5, cur + 14); c += GAP) add(c, x, .8); }
+  const ground = g.coins.filter(c => c.y === .8 && c.s > (g.first ? 25 : 12)), n = Math.random() < .6 ? 1 : 0;
+  for (let k = 0; k < n && ground.length; k++) { const c = ground.splice(Math.random() * ground.length | 0, 1)[0], r = Math.random(); c.taken = true; g.pickups.push({s: c.s, x: c.x, y: 1.05, type: r < .4 ? 'magnet' : r < .72 ? 'shield' : 'x2', taken: false}); }
+}
+// scenery from the sprite pack, placed the way the game's decorators place it
+function buildProps(g, prev){
+  const P2 = g.props, L = g.L, a0 = g.first ? -20 : HW, b = g.biome, sk = SKIN[b];
+  const add = (k, s, x, rot = 0, lift = 0, keep = false) => P2.push({k, s, x, rot, lift, keep});
+  const wall = b === 'jungle' ? 'end_wall' : 'end_wall_' + sk; add(wall, L + HW + .6, 0, 0, 0, true);
+  if (g.gate) add(b === 'hell' ? 'inferno_gate' : b === 'ice' ? 'tundra_gate' : 'temple_arch', (g.first ? 0 : HW) + 4, 0, 0, 0, true);
+  const busy = s => g.gaps.some(([a, c]) => s > a - 1.5 && s < c + 1.5) || g.obstacles.some(o => o.type === 'arch' && Math.abs(o.s - s) < 3) || (g.river && s > g.river.rA - 4 && s < g.river.rB + 4);
+  const pillar = b === 'jungle' ? 'temple_pillar' : b === 'hell' ? 'inferno_pillar' : 'ice_pillar', arch = b === 'jungle' ? 'temple_arch' : b === 'hell' ? 'inferno_arch' : 'frozen_arch';
+  for (let p = a0 + 4; p < L - 3; p += 9) {
+    if (busy(p) || (g.gate && Math.abs(p - ((g.first ? 0 : HW) + 4)) < 5)) continue;
+    if (Math.random() < .16) { add(arch, p, 0, 0, 0, true); continue; }
+    for (const side of [-1, 1]) add(b === 'jungle' && Math.random() < .4 ? 'broken_pillar' : pillar, p, side * (HW + 1.3), side > 0 ? 0 : Math.PI);
+  }
+  if (b === 'jungle') {
+    for (const side of [-1, 1]) {
+      for (let p = a0 + rand(0, 3); p < L - 2; p += rand(3.5, 7)) { if (busy(p)) continue; add(Math.random() < .55 ? 'fern' : 'shrub', p, side * (HW + rand(1.9, 3.2)), rand(0, 6)); }
+      for (let p = a0 + rand(2, 6); p < L + 6; p += rand(6, 11)) { const t = Math.random(); add(t < .26 ? 'palm' : t < .46 ? 'broadleaf' : t < .62 ? 'round_tree' : t < .78 ? 'vine_tree' : 'bamboo', p, side * (HW + rand(5, 9)), rand(0, 6)); }
+      for (let p = a0 + rand(0, 8); p < L + 10; p += rand(9, 16)) { const t = Math.random(); add(t < .35 ? 'canopy' : t < .7 ? 'broadleaf' : 'round_tree', p, side * (HW + rand(13, 28)), rand(0, 6)); }
+    }
+    if (g.river) add('inner_tubes', g.river.rA - 1.5, -(HW + 1.8));
+  } else if (b === 'hell') {
+    for (const side of [-1, 1]) {
+      for (let p = a0 + rand(0, 8); p < L + HW; p += rand(5, 10)) add(Math.random() < .55 ? 'obsidian_spike' : 'crust_rock', p, side * (HW + rand(4, 17)), rand(0, 6));
+      for (let p = a0 + rand(6, 14); p < L - 4; p += rand(15, 26)) add('fire_vent', p, side * (HW + rand(5, 12)), rand(0, 6));
+    }
+  } else {
+    for (const side of [-1, 1]) for (let p = a0 + rand(0, 3); p < L + 4; p += rand(3.5, 7)) { const t = Math.random(); add(t < .5 ? 'snowy_pine' : t < .78 ? 'ice_spire' : 'ice_floe', p, side * (HW + rand(3.6, 18)), rand(0, 6)); }
+  }
+  for (let p = rand(30, 90); p < L; p += rand(90, 160)) {           // floating islands drift over the low ground
+    const isl = ['island_plain', 'island_waterfall', 'island_torii', 'island_ruins', 'island_vines', 'island_waterfall_vines', 'island_ruins_vines'];
+    add(isl[Math.random() * isl.length | 0], p, (Math.random() < .5 ? -1 : 1) * (HW + rand(16, 30)), rand(0, 6), rand(8, 16));
+  }
+  for (const o of g.obstacles) {                                    // gameplay obstacles as sprites
+    if (o.type === 'root') add('root_' + sk, o.s, 0, 0, 0, true);
+    else if (o.type === 'barrier') add('barrier_' + sk, o.s, 0, 0, 0, true);
+    else if (o.type === 'wall') for (const l of o.lanes) add('idol_' + sk, o.s, l * LANE, 0, 0, true);
+    else if (o.type === 'arch') {
+      if (b === 'hell') { add('flame_pillar', o.s, -(HW + 1.9), 0, 0, true); add('flame_pillar', o.s, HW + 1.9, Math.PI, 0, true); P2.push({k: 'flame_jet0', s: o.s, x: 0, rot: 0, lift: .6, keep: true, anim: ['flame_jet0', 'flame_jet1', 'flame_jet2']}); o.flame = true; }
+      else add(b === 'ice' ? 'icicle_arch' : 'root_arch', o.s, 0, 0, 0, true);
+    } else if (o.type === 'rock') for (const k of o.rocks) add(k.low ? 'rock_low' : 'rock_tall', o.s, k.x, 0, WY, true);
+    if (o.type === 'root' || o.type === 'barrier' || o.type === 'arch') P2.forEach(p => { if (!p.keep && Math.abs(p.s - o.s) < 2.5 && Math.abs(p.x) < HW + 2.6) p.drop = true; });
+  }
+}
+const CLR = {canopy: 11, broadleaf: 7, round_tree: 7, palm: 6, vine_tree: 6, bamboo: 4, snowy_pine: 5, ice_spire: 6, obsidian_spike: 3, fire_vent: 2, temple_pillar: 1.5, broken_pillar: 1.5, inferno_pillar: 1.5, ice_pillar: 1.5};
+function clearCorridor(g, o){
+  g.props = g.props.filter(p => {
+    if (p.keep) return true;
+    const [wx, wz] = worldPos(g, p.s, p.x), rx = wx - o.sx, rz = wz - o.sz, s = rx * o.dx + rz * o.dz, x = rx * o.rx + rz * o.rz;
+    const c = p.lift > 4 ? 12 : CLR[p.k] ?? 2;
+    return !(s > o.a0 - c && s < o.L + HW + c && Math.abs(x) < o.ter + c - 5);
+  });
+}
+function ensureSegments(){
+  while (segments.length < 4 || segments[segments.length - 1].d0 - (P.seg.d0 + P.s) < 600) segments.push(makeSegment(segments[segments.length - 1]));
+  const i = segments.indexOf(P.seg); if (i > 3) segments.splice(0, i - 3);
+}
+const worldPos = (g, s, x) => [g.sx + g.dx * s + g.rx * x, g.sz + g.dz * s + g.rz * x];
+const inGap = (g, s) => g.gaps.some(([a, b]) => s > a + .25 && s < b - .25);
+function riverAt(g, s){ const r = g && g.river; if (!r || s < r.rA || s > r.rB) return [0, false]; if (s < r.r0) return [WY * smooth((s - r.rA) / RAMP), s >= r.r0 - 1.2]; if (s <= r.r1) return [WY, true]; return [WY * (1 - smooth((s - r.r1) / RAMP)), false]; }
+function smooth(t){ t = clamp(t, 0, 1); return t * t * (3 - 2 * t); }
+
+// ============================================================ run state
+let best = 0, runs = 0; try { best = +localStorage.getItem('umaSpriteBest') || 0; runs = +localStorage.getItem('umaSpriteRuns') || 0; } catch (e) {}
+function resetRun(){
+  biomeRoll(); segments = []; segHist = []; riverNextD = START_D + (HASH.includes('river') ? 90 : 620);
+  P = {seg: null, s: 0, x: 0, xT: 0, y: 0, vy: 0, grounded: true, slideT: 0, slideQ: false, dist: START_D, speed: BASE_SPEED, coins: 0, stumbleT: 0, lastStumble: -99, gameT: 0,
+    magT: 0, shieldT: 0, x2T: 0, invT: 0, inWater: false, chaseD: 7.5, ox: 0, oz: 0, yaw: 0, deadT: 0, death: null, cause: null, bank: null, hintSeen: {}};
+  segments.push(makeSegment(null)); P.seg = segments[0]; ensureSegments();
+  cam = {x: 0, z: 0, th: 0, shake: 0};
+  bannerBiome = segments[0].biome; monkeys.forEach((m, i) => { m.lat = m.off; });
+}
+const monkeys = [{back: 0, off: -1.3, lat: 0}, {back: 1.4, off: 1.4, lat: 0}, {back: 2.6, off: 0, lat: 0}];
+let bannerBiome = 'jungle', flashUntil = 0, flashKey = '';
+function flash(text, dur = 1.4, kind = ''){ const b = $('banner'); b.textContent = text; b.className = 'banner on ' + kind; flashUntil = time + dur; }
+function startGame(){
+  if (state === 'play') return;
+  audioInit(); resetRun(); state = 'play'; runs++; try { localStorage.setItem('umaSpriteRuns', runs); } catch (e) {}
+  $('start').classList.add('hidden'); $('over').classList.add('hidden'); $('paused').classList.add('hidden');
+  sfx(520, .25, 'triangle', .1, 880); flash('RUN!', 1, 'good');
+}
+function die(type, cause){
+  if (state !== 'play') return;
+  state = 'dying'; P.death = type; P.cause = cause; P.deadT = 0; cam.shake = .45;
+  if (type === 'caught') { flash('CAUGHT!', 1.5, 'bad'); sfx(180, .6, 'sawtooth', .12, 60); } else sfx(110, .5, 'sawtooth', .22, 40);
+  if (type === 'fall') burst(P, cause === 'lava' ? '#ff9a2a' : cause === 'ice' ? '#bfeaff' : '#6a7a6a', 18);
+}
+function gameOver(){
+  state = 'over'; const dm = Math.floor(P.dist - START_D), nb = dm > best;
+  if (nb && !START_D && !AUTO) { best = dm; try { localStorage.setItem('umaSpriteBest', best); } catch (e) {} }
+  $('overTitle').textContent = P.cause === 'flame' ? 'TOASTED!' : P.death === 'fall' ? (P.cause === 'ice' ? 'INTO THE ICY WATER!' : P.cause === 'lava' ? 'INTO THE LAVA!' : 'INTO THE ABYSS!')
+    : P.death === 'caught' ? 'CAUGHT BY THE MONKEYS!' : P.cause === 'turn' ? 'MISSED THE TURN!' : 'CRASH!';
+  $('oDist').textContent = dm.toLocaleString('en-US') + ' m'; $('oCoins').textContent = P.coins; $('oBest').textContent = best.toLocaleString('en-US') + ' m';
+  $('newBest').classList.toggle('hidden', !(nb && !START_D)); $('over').classList.remove('hidden'); showBest();
+}
+function showBest(){ $('bestHud').textContent = best ? 'Best ' + best.toLocaleString('en-US') + ' m' : ''; $('bestStart').textContent = best ? 'Best run: ' + best.toLocaleString('en-US') + ' m' : 'Outrun the demon monkeys through the temple, the Inferno and the tundra.'; }
+function useShield(){ if (P.shieldT > 0) { P.shieldT = 0; P.invT = 1; flash('SHIELD SAVED YOU!', 1.1, 'good'); sfx(880, .3, 'triangle', .1, 440); return true; } return false; }
+function stumble(){
+  if (P.invT > 0 || useShield()) return;
+  if (P.gameT - P.lastStumble < 5) return die('caught', 'caught');
+  P.lastStumble = P.gameT; P.stumbleT = .55; cam.shake = .3; flash("STUMBLE! THEY'RE GAINING!", 1.2, 'bad'); sfx(200, .25, 'square', .12, 90);
+}
+function doTurn(){
+  const g = P.seg, nx = segments[segments.indexOf(g) + 1];
+  const [bx, bz] = worldPos(g, P.s, P.x);
+  P.seg = nx; P.s = Math.max(0, P.s - g.L);
+  const [ax, az] = worldPos(nx, P.s, P.x); P.ox += bx - ax; P.oz += bz - az;
+  sfx(660, .12, 'triangle', .15, 880);
+}
+function inTurnWindow(d){ return state === 'play' && P.s > P.seg.L - turnWin(P.speed) && d === P.seg.turn; }
+function side(d){ if (state !== 'play') return; if (inTurnWindow(d)) return doTurn(); P.xT = clamp(Math.round(P.xT / LANE + d) * LANE, -XMAX, XMAX); }
+function jump(){ if (state === 'start' || state === 'over') return startGame(); if (state !== 'play' || !P.grounded) return; P.vy = P.inWater ? JUMPV * .68 : JUMPV; P.grounded = false; P.slideT = 0; sfx(520, .15, 'square', .06, 900); }
+function slide(){ if (state !== 'play' || P.inWater) return; if (P.grounded) { P.slideT = SLIDE; sfx(240, .15, 'sine', .1, 140); } else { P.vy = Math.min(P.vy, -16); P.slideQ = true; } }
+function gainCoin(){ const n = P.x2T > 0 ? 2 : 1; P.coins += n; sfx(1240 + (P.coins % 5) * 60, .07, 'square', .04, 1800); }
+function activate(t){ P[t === 'magnet' ? 'magT' : t === 'shield' ? 'shieldT' : 'x2T'] = PU_DUR[t]; flash(t === 'magnet' ? 'CARROT MAGNET!' : t === 'shield' ? 'SHIELD UP!' : 'CARROTS x2!', 1.2, 'good'); sfx(700, .35, 'triangle', .1, 1400); }
+
+// ============================================================ update
+function update(dt){
+  time += dt;
+  if (state === 'play') updateGame(dt);
+  else if (state === 'dying') { P.deadT += dt; if (P.death === 'caught') P.chaseD = Math.max(0, P.chaseD - dt * 12); if (P.deadT > 1.1) gameOver(); }
+  // chase: close in fast after a stumble, fall back slowly
+  if (P && state === 'play') { const tgt = P.gameT - P.lastStumble < 5 ? 2.4 : 7.5; P.chaseD += clamp(tgt - P.chaseD, -7 * dt, 3.2 * dt); }
+  // camera follows the runner, turns with the track
+  if (P) {
+    P.ox *= Math.exp(-dt * 5); P.oz *= Math.exp(-dt * 5);
+    const g = P.seg, tgtTh = state === 'start' ? time * .25 : g.th;
+    let dth = tgtTh - cam.th; dth = Math.atan2(Math.sin(dth), Math.cos(dth));
+    cam.th += state === 'start' ? dth : dth * Math.min(1, dt * 7);
+    P.yaw += Math.atan2(Math.sin(g.th - P.yaw), Math.cos(g.th - P.yaw)) * Math.min(1, dt * 12);
+    const [wx, wz] = worldPos(g, P.s + 2.5, P.x * .3); cam.x = wx + P.ox; cam.z = wz + P.oz;
+    cam.shake = Math.max(0, cam.shake - dt);
+  }
+  if (time > flashUntil) $('banner').classList.remove('on');
+  updateParticles(dt);
+}
+function updateGame(dt){
+  const g = P.seg; P.gameT += dt;
+  P.speed = speedAt(P.dist);
+  const eff = P.speed * (P.stumbleT > 0 ? .7 : 1) * (P.inWater ? .9 : 1);
+  if (P.stumbleT > 0) P.stumbleT -= dt;
+  for (const k of ['magT', 'shieldT', 'x2T', 'invT']) if (P[k] > 0) P[k] = Math.max(0, P[k] - dt);
+  const ds = eff * dt; P.s += ds; P.dist += ds;
+  const [, wet] = riverAt(g, P.s);
+  if (g.river && !g.river.seen && P.s >= g.river.rA - 2) { g.river.seen = true; flash('RIVER! DODGE THE ROCKS!', 1.3, ''); P.bank = {seg: g, s: g.river.rA - .6}; }
+  if (wet && !P.inWater) { P.inWater = true; P.slideT = 0; P.slideQ = false; if (P.grounded) { P.vy = 5.2; P.grounded = false; } sfx(300, .3, 'sine', .1, 120); }
+  else if (!wet && P.inWater) { P.inWater = false; P.vy = 6; P.grounded = false; P.chaseD = Math.max(P.chaseD, 17); P.lastStumble = -99; P.bank = null; flash("THE MONKEYS CAN'T SWIM!", 1.4, 'good'); }
+  P.x += (P.xT - P.x) * Math.min(1, dt * 14);
+  const safe = P.invT > 0, over = inGap(g, P.s), fallCause = g.biome === 'jungle' ? 'gap' : g.biome === 'ice' ? 'ice' : 'lava';
+  if (!P.grounded) {
+    P.vy -= GRAV * dt; P.y += P.vy * dt;
+    if (P.y <= 0) { if (over) { if (safe || useShield()) { P.y = 0; P.vy = JUMPV; } else return die('fall', fallCause); }
+      else { P.y = 0; P.vy = 0; P.grounded = true; if (P.slideQ) { P.slideT = SLIDE; P.slideQ = false; } } }
+  } else if (over) { if (safe || useShield()) { P.vy = JUMPV; P.grounded = false; } else return die('fall', fallCause); }
+  if (P.slideT > 0) P.slideT -= dt;
+  if (AUTO) autopilot(g);
+  if (P.s > g.L + HW - .8) { if (safe || useShield()) return doTurn(); return die('crash', 'turn'); }
+  for (const o of g.obstacles) {
+    if (P.s + .3 < o.s0 || P.s - .3 > o.s1 || o.hit) continue;
+    if (o.type === 'arch' && P.slideT <= 0) { if (safe || useShield()) { o.hit = true; continue; } return die('crash', o.flame ? 'flame' : 'branch'); }
+    if (o.type === 'root' && P.y < .5) { o.hit = true; stumble(); if (state !== 'play') return; }
+    if (o.type === 'barrier') { if (P.y < .4) { if (safe || useShield()) { o.hit = true; continue; } return die('crash', 'barrier'); } if (P.y < .72) { o.hit = true; stumble(); if (state !== 'play') return; } }
+    if (o.type === 'rock') for (const k of o.rocks) { if (P.y > k.h - .08) continue; const dx = Math.abs(P.x - k.x) - (k.low ? k.hw : k.hw * .5); if (dx < .3) { if (safe || useShield()) { o.hit = true; break; } return die('crash', 'rock'); } }
+    if (o.type === 'wall') { const dm = Math.min(...o.lanes.map(l => Math.abs(P.x - l * LANE))); if (dm < .9) { if (safe || useShield()) { o.hit = true; continue; } return die('crash', 'wall'); } if (dm < 1.3) { o.hit = true; stumble(); if (state !== 'play') return; } }
+  }
+  const py = P.y + (P.inWater ? .5 : P.slideT > 0 ? .35 : .85), nxt = segments[segments.indexOf(g) + 1];
+  if (P.magT > 0) { const kk = Math.min(1, dt * 11);
+    for (const c of g.coins) { if (c.taken) continue; const ahead = c.s - P.s; if (!c.mag && ahead > -1 && ahead < MAG_R) c.mag = true; if (c.mag) { c.s += (P.s + .2 - c.s) * kk; c.x += (P.x - c.x) * kk; c.y += (py - c.y) * kk; } }
+    if (nxt && g.L - P.s < MAG_R) for (const c of nxt.coins) if (!c.taken && c.s < MAG_R - (g.L - P.s)) { c.taken = true; gainCoin(); } }
+  for (const pu of g.pickups) { if (pu.taken || Math.abs(pu.s - P.s) > 1) continue; if (Math.abs(pu.x - P.x) < 1.15 && Math.abs(pu.y - py) < 1.3) { pu.taken = true; activate(pu.type); burst(P, '#ffffff', 12); } }
+  for (const c of g.coins) { if (c.taken || Math.abs(c.s - P.s) > .9) continue; if (Math.abs(c.x - P.x) < .9 && Math.abs(c.y - py) < 1) { c.taken = true; gainCoin(); burst(P, '#ff9a2a', 4); } }
+  // biome banners and first-run hints
+  if (g.biome !== bannerBiome && P.s > (g.gate ? HW + 4 : 0)) { bannerBiome = g.biome;
+    if (g.biome === 'hell') { flash("WELCOME TO MAMBO'S INFERNO!", 2.4, 'hell'); cam.shake = .35; sfx(70, 1.4, 'sawtooth', .14, 34); }
+    else if (g.biome === 'ice') { flash("WELCOME TO MAMBO'S FROZEN TUNDRA!", 2.4, 'ice'); sfx(880, .6, 'triangle', .08, 1760); }
+    else { flash('BACK TO THE TEMPLE!', 2, 'good'); sfx(520, .5, 'triangle', .1, 880); } }
+  if (runs <= 2) for (const o of g.obstacles) { const a = o.s0 - P.s; if (a > 0 && a < P.speed * 1.4 && !P.hintSeen[o.type]) { P.hintSeen[o.type] = 1;
+    const t = {gap: 'JUMP THE GAP! ▲', root: 'JUMP THE ROOT! ▲', barrier: 'JUMP! ▲', arch: 'SLIDE UNDER! ▼', wall: 'DODGE! ◀ ▶', rock: 'DODGE THE ROCKS!'}[o.type]; if (t) flash(t, 1.1, ''); } }
+  ensureSegments();
+}
+function autopilot(g){
+  if (P.s > g.L - 3) return doTurn();
+  const cn = g.coins.find(c => !c.taken && c.s - P.s > 0 && c.s - P.s < 9 && c.y < 1); if (cn) P.xT = clamp(Math.round(cn.x / LANE) * LANE, -XMAX, XMAX);
+  for (const o of g.obstacles) {
+    const a = o.s0 - P.s; if (a <= 0 || a > P.speed * .32) continue;
+    if (o.type === 'arch' && P.grounded) P.slideT = SLIDE;
+    if ((o.type === 'barrier' || o.type === 'gap' || o.type === 'root') && P.grounded && a < P.speed * .22) { P.vy = JUMPV; P.grounded = false; P.slideT = 0; }
+    if (o.type === 'wall' && o.lanes.some(l => Math.abs(P.xT - l * LANE) < 1.4)) P.xT = [-1, 0, 1].filter(l => !o.lanes.includes(l)).sort((p, q) => Math.abs(p * LANE - P.x) - Math.abs(q * LANE - P.x))[0] * LANE;
+    if (o.type === 'rock') { const tall = o.rocks.filter(k => !k.low); if (tall.some(k => Math.abs(P.xT - k.x) < 1.6)) { const f = [-1, 0, 1].map(l => l * LANE).filter(x => tall.every(k => Math.abs(x - k.x) > 1.6)); if (f.length) P.xT = f.sort((p, q) => Math.abs(p - P.x) - Math.abs(q - P.x))[0]; }
+      if (o.rocks.some(k => k.low) && P.grounded && a < P.speed * .2) { P.vy = JUMPV * .68; P.grounded = false; } }
+  }
+}
+
+// ============================================================ particles (world space, 1 px dots)
+const parts = [];
+function burst(p, col, n){ const [x, z] = worldPos(P.seg, P.s, P.x); for (let i = 0; i < n; i++) parts.push({x: x + P.ox, z: z + P.oz, h: P.y + .8, vx: rand(-3, 3), vz: rand(-3, 3), vh: rand(2, 7), life: rand(.35, .7), col}); }
+function updateParticles(dt){
+  for (let i = parts.length - 1; i >= 0; i--) { const q = parts[i]; q.life -= dt; if (q.life <= 0) { parts.splice(i, 1); continue; } q.x += q.vx * dt; q.z += q.vz * dt; q.h += q.vh * dt; q.vh -= (q.g ?? 14) * dt; if (q.floor !== false && q.h < 0) { q.h = 0; q.vh = 0; } }
+  if (!P || !cam) return;
+  const b = P.seg.biome, n = parts.filter(q => q.amb).length;
+  if (n < 46 && Math.random() < .9) { const r = rand(4, 26), a = rand(0, Math.PI * 2);
+    if (b === 'hell') parts.push({amb: 1, x: cam.x + Math.cos(a) * r, z: cam.z + Math.sin(a) * r, h: rand(0, 2), vx: rand(-.4, .4), vz: rand(-.4, .4), vh: rand(1.5, 3), g: 0, life: rand(1.5, 3), col: Math.random() < .5 ? '#ffb040' : '#ff6a1a', floor: false});
+    else if (b === 'ice') parts.push({amb: 1, x: cam.x + Math.cos(a) * r, z: cam.z + Math.sin(a) * r, h: rand(6, 12), vx: rand(-.6, .6), vz: rand(-.6, .6), vh: -rand(1.2, 2.2), g: 0, life: rand(3, 6), col: '#ffffff'}); }
+}
+
+// ============================================================ rendering
+const cv = $('cv'), ctx = cv.getContext('2d'), buf = document.createElement('canvas'), bg = buf.getContext('2d');
+let Z = 4, bw = 0, bh = 0, img = null, px32 = null;
+function resize(){
+  const dpr = Math.min(3, devicePixelRatio || 1), Wd = Math.round(innerWidth * dpr), Hd = Math.round(innerHeight * dpr);
+  cv.width = Wd; cv.height = Hd; Z = Math.max(2, Math.round(Math.min(Wd / 118, Hd / 215)));
+  bw = Math.ceil(Wd / Z); bh = Math.ceil(Hd / Z); buf.width = bw; buf.height = bh; img = bg.createImageData(bw, bh); px32 = new Uint32Array(img.data.buffer);
+}
+addEventListener('resize', resize);
+const RGB = (r, g, b) => (0xff000000 | (b << 16) | (g << 8) | r) >>> 0;
+const PAL = {
+  jStone: RGB(236, 218, 180), jGrout: RGB(206, 180, 136), jMoss: RGB(122, 196, 70), jCurb: RGB(214, 180, 124), jCurbG: RGB(188, 152, 98),
+  jGrass: [RGB(114, 200, 69), RGB(96, 182, 58), RGB(138, 216, 82)], jLow: [RGB(52, 128, 50), RGB(44, 112, 44), RGB(62, 142, 56)], jEdge: RGB(30, 78, 34), jHole: RGB(18, 36, 26),
+  jFlower: [RGB(255, 127, 184), RGB(255, 225, 74), RGB(255, 255, 255), RGB(181, 139, 255)],
+  hStone: RGB(104, 78, 74), hGrout: RGB(46, 30, 28), hGlow: RGB(255, 118, 30), hLedge: RGB(76, 56, 53), hLava: [RGB(50, 23, 18), RGB(118, 26, 10), RGB(220, 80, 20), RGB(255, 178, 66)],
+  iTile: RGB(226, 240, 255), iGrout: RGB(160, 224, 250), iLedge: [RGB(244, 248, 255), RGB(226, 236, 250)], iSea: [RGB(212, 233, 250), RGB(192, 222, 244), RGB(236, 246, 255)], iHole: RGB(14, 40, 60),
+  water: RGB(64, 168, 228), waterL: RGB(150, 224, 255), waterD: RGB(42, 132, 196), gold: RGB(255, 200, 58), goldD: RGB(214, 150, 30),
+};
+function hsh(x, y){ let h = Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263); h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
+function noise(x, y){ const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi, u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf); const a = hsh(xi, yi), b = hsh(xi + 1, yi), c = hsh(xi, yi + 1), d = hsh(xi + 1, yi + 1); return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v; }
+function tile(s, x, size, stagger){ const row = Math.floor(s / size), fs = s / size - row, xx = x / size + (row & 1) * stagger, fx = xx - Math.floor(xx); return fs < .26 || fx < .26 ? 1 : 0; }
+function groundPixel(wx, wz, segs, lowB){
+  let best = 0, bs = null, bS = 0, bX = 0, edge = 99;
+  for (let i = 0; i < segs.length; i++) { const g = segs[i], rx = wx - g.sx, rz = wz - g.sz, s = rx * g.dx + rz * g.dz; if (s < g.a0 - 12 || s > g.L + 16) continue;
+    const x = rx * g.rx + rz * g.rz, ax = x < 0 ? -x : x, e = ax - g.ter; if (e > 0) { if (s > g.a0 - 2 && s < g.L + HW + 10 && e < edge) edge = e; continue; }
+    let cat; if (ax <= HW && s >= g.a0 && s <= g.L + HW) cat = 3; else if (g.biome === 'jungle' && ax <= HW + .7 && s >= g.a0 && s <= g.L + HW) cat = 2; else if (s >= g.a0 - 2 && s <= g.L + HW + 10) cat = 1; else continue;
+    if (cat > best) { best = cat; bs = g; bS = s; bX = x; } }
+  if (best === 3) {
+    const g = bs, b = g.biome, s = bS, x = bX;
+    for (const [a, c] of g.gaps) if (s > a && s < c) return b === 'jungle' ? (Math.min(s - a, c - s) < .3 ? PAL.jEdge : PAL.jHole) : b === 'hell' ? PAL.hLava[noise(wx * .5 + time, wz * .5) > .5 ? 3 : 2] : PAL.iHole;
+    if (g.river && s > g.river.rA && s < g.river.rB) { const f = (s * .5 - time * 1.2 + Math.sin(x * 1.3) * .3); const fr = f - Math.floor(f); return fr < .14 ? PAL.waterL : (s < g.river.r0 || s > g.river.r1) && fr > .6 ? PAL.waterD : PAL.water; }
+    if (s > g.L - 11 && s < g.L - 2.2) { const u = x * g.turn, c = g.L - 6.6; for (const uc of [-2.2, 0, 2.2]) { const ds = Math.abs(s - c), du = u - uc; if (ds < 1.25 && Math.abs(du + ds * .9 - .45) < .34) return PAL.gold; } }
+    if (b === 'jungle') return tile(s, x, 1.2, .5) ? PAL.jGrout : hsh(Math.floor(s / .3), Math.floor(x / .3)) < .03 ? PAL.jMoss : PAL.jStone;
+    if (b === 'hell') return tile(s, x, 1.5, .5) ? (hsh(Math.floor(s / 1.5), Math.floor(x / .6)) < .45 ? PAL.hGlow : PAL.hGrout) : PAL.hStone;
+    return tile(s, x, 1.2, .4) ? PAL.iGrout : PAL.iTile;
+  }
+  if (best === 2) return tile(bS, bX, 1.2, 0) ? PAL.jCurbG : PAL.jCurb;
+  if (best === 1) { const b = bs.biome;
+    if (b === 'jungle') { const h = hsh(Math.floor(wx / .3), Math.floor(wz / .3)); return h < .012 ? PAL.jFlower[(h * 400) & 3] : PAL.jGrass[h < .1 ? 1 : h < .2 ? 2 : 0]; }
+    if (b === 'hell') return tile(bS, bX, 1.5, .5) ? PAL.hGrout : PAL.hLedge;
+    return PAL.iLedge[hsh(Math.floor(wx / .3), Math.floor(wz / .3)) < .15 ? 1 : 0]; }
+  if (lowB === 'jungle') { if (edge < .9) return PAL.jEdge; const v = noise(wx * .25, wz * .25); return PAL.jLow[v < .35 ? 1 : v > .7 ? 2 : 0]; }
+  if (lowB === 'hell') { if (edge < .6) return PAL.hGrout; const v = noise(wx * .09 + time * .12, wz * .09 - time * .06) * .7 + noise(wx * .3, wz * .3 + time * .2) * .3; return PAL.hLava[v < .55 ? 0 : v < .6 ? 1 : v < .72 ? 2 : 3]; }
+  if (edge < .5) return PAL.iSea[1]; const v = noise(wx * .14, wz * .14); return PAL.iSea[v > .68 ? 2 : v < .3 ? 1 : 0];
+}
+function render(){
+  if (!px32) return;
+  const segs = P ? segments.slice(Math.max(0, segments.indexOf(P.seg) - 2), segments.indexOf(P.seg) + 4) : [];
+  const cs = Math.cos(cam.th), sn = Math.sin(cam.th), ax = bw / 2 + (cam.shake > 0 ? rand(-1, 1) * cam.shake * 4 : 0), ay = Math.round(bh * .7) + (cam.shake > 0 ? rand(-1, 1) * cam.shake * 4 : 0);
+  const lowB = P.seg.biome;
+  for (let py = 0; py < bh; py++) { const d = (py + .5 - ay) / SQ * S, r0 = (.5 - ax) * S, bx = cam.x + r0 * cs - d * sn, bz = cam.z + r0 * sn + d * cs, sx = S * cs, sz = S * sn, row = py * bw;
+    for (let px = 0; px < bw; px++) px32[row + px] = groundPixel(bx + px * sx, bz + px * sz, segs, lowB); }
+  bg.putImageData(img, 0, 0);
+  const proj = (wx, wz) => { const dx = wx - cam.x, dz = wz - cam.z; return [ax + (dx * cs + dz * sn) / S, ay + (-dx * sn + dz * cs) / S * SQ]; };
+  const items = [], vis = (sx, sy) => sx > -80 && sx < bw + 80 && sy > -90 && sy < bh + 140;
+  for (const g of segs) {
+    for (const p of g.props) { const [wx, wz] = worldPos(g, p.s, p.x), [sx, sy] = proj(wx, wz); if (!vis(sx, sy - p.lift / S)) continue;
+      const k = p.anim ? p.anim[Math.floor(time * 12 + p.s) % p.anim.length] : p.k; items.push({k, sx, sy, lift: p.lift, a: g.th + p.rot - cam.th, sh: p.lift < 4, bob: p.lift > 4 ? Math.sin(time * 1.1 + p.s) * 2 : 0}); }
+    for (const c of g.coins) { if (c.taken) continue; const [wx, wz] = worldPos(g, c.s, c.x), [sx, sy] = proj(wx, wz); if (!vis(sx, sy)) continue; items.push({k: 'carrot', sx, sy, lift: c.y + (g.river && c.s > g.river.r0 && c.s < g.river.r1 ? WY : 0), a: time * 3 + c.s, sh: true, bob: Math.sin(time * 4 + c.s) }); }
+    for (const pu of g.pickups) { if (pu.taken) continue; const [wx, wz] = worldPos(g, pu.s, pu.x), [sx, sy] = proj(wx, wz); if (!vis(sx, sy)) continue; items.push({icon: pu.type, sx, sy, lift: pu.y, bob: Math.sin(time * 3 + pu.s) * 1.5}); }
+  }
+  // the runner
+  if (P && !(state === 'dying' && P.death === 'fall' && P.deadT > .35)) {
+    const g = P.seg, [wx, wz] = worldPos(g, P.s, P.x), [sx, sy] = proj(wx + P.ox, wz + P.oz);
+    const [base] = riverAt(g, P.s);
+    let k = 'runner_idle';
+    if (state === 'play' || state === 'dying') k = P.inWater ? 'runner_idle' : P.slideT > 0 ? 'runner_slide' : !P.grounded ? 'runner_jump' : 'runner_run' + (Math.floor(P.dist / .7) & 3);
+    if (state === 'dying' && P.death !== 'fall') k = 'runner_idle';
+    const lean = (P.xT - P.x) * .08, sink = state === 'dying' && P.death === 'fall' ? -P.deadT * 6 : 0;
+    if (P.inWater) items.push({k: 'tube', sx, sy: sy + .1, lift: base + .05 + Math.sin(time * 5) * .04, a: time, sh: false});
+    items.push({k, sx, sy: sy + .2, lift: base + P.y + sink + (P.inWater ? .25 : 0), a: Math.PI + P.yaw - cam.th + lean, sh: true, runner: true, blink: P.invT > 0 && Math.floor(time * 16) % 2});
+    // the demon monkeys, sampled back along the track
+    if (state !== 'start') monkeys.forEach((m, i) => {
+      let back = P.chaseD + m.back, gi = segments.indexOf(g), s = P.s - back, mg = g;
+      while (s < 0 && gi > 0) { gi--; mg = segments[gi]; s += mg.L; }
+      if (P.bank && mg === P.bank.seg && s > P.bank.s) s = P.bank.s - m.back * .6;     // they wait at the river bank
+      if (s < mg.a0) return;
+      m.lat = lerp(m.lat, m.off, .1);
+      const [mx, mz] = worldPos(mg, s, clamp(P.x * .5 + m.lat, -3, 3)), [msx, msy] = proj(mx, mz);
+      if (!vis(msx, msy)) return;
+      items.push({k: 'monkey' + (Math.floor(time * 9 + i) & 1), sx: msx, sy: msy, lift: Math.abs(Math.sin(time * 9 + i * 1.7)) * .35, a: Math.PI + mg.th - cam.th, sh: true});
+    });
+  }
+  items.sort((a, b) => a.sy - b.sy);
+  bg.imageSmoothingEnabled = false;
+  for (const it of items) { if (!it.sh || !it.k) continue; const f = frame(it.k, it.a); bg.drawImage(f.sh, Math.round(it.sx - f.ox), Math.round(it.sy - f.base)); }
+  const rn = items.find(it => it.runner); if (rn) { bg.fillStyle = 'rgba(255,106,168,.55)'; const cx = Math.round(rn.sx), cy = Math.round(rn.sy); for (const [dx, dy, w] of [[-3, -1, 7], [-4, 0, 9], [-3, 1, 7]]) bg.fillRect(cx + dx, cy + dy, w, 1); }
+  for (const it of items) {
+    if (it.icon) { const c = ICON[it.icon], y = Math.round(it.sy - it.lift / S - 6 + (it.bob || 0)); bg.fillStyle = 'rgba(10,20,30,.3)'; bg.fillRect(Math.round(it.sx - 3), Math.round(it.sy), 6, 2); bg.drawImage(c, Math.round(it.sx - 5), y); continue; }
+    if (it.blink) continue;
+    const f = frame(it.k, it.a); bg.drawImage(f.body, Math.round(it.sx - f.ox), Math.round(it.sy - it.lift / S - f.base + (it.bob || 0)));
+    if (it.runner && P.shieldT > 0 && (P.shieldT > 1.5 || Math.floor(time * 10) % 2)) ring(it.sx, it.sy - it.lift / S - 6, 8, '#9ff0ff');
+  }
+  for (const q of parts) { const [sx, sy] = proj(q.x, q.z); bg.fillStyle = q.col; bg.fillRect(Math.round(sx), Math.round(sy - q.h / S), 1, 1); }
+  ctx.imageSmoothingEnabled = false; ctx.drawImage(buf, 0, 0, bw * Z, bh * Z);
+}
+function ring(cx, cy, r, col){ bg.fillStyle = col; for (let a = 0; a < 40; a++) { const t = a / 40 * Math.PI * 2; bg.fillRect(Math.round(cx + Math.cos(t) * r), Math.round(cy + Math.sin(t) * r * .8), 1, 1); } }
+
+// ============================================================ HUD
+let hudCache = '';
+function hud(){
+  if (!P) return;
+  const d = Math.floor(P.dist - START_D), chips = [];
+  if (P.magT > 0) chips.push('Magnet ' + Math.ceil(P.magT) + 's'); if (P.shieldT > 0) chips.push('Shield ' + Math.ceil(P.shieldT) + 's'); if (P.x2T > 0) chips.push('x2 ' + Math.ceil(P.x2T) + 's');
+  const key = d + '|' + P.coins + '|' + chips.join(',');
+  if (key !== hudCache) { hudCache = key; $('dist').textContent = d.toLocaleString('en-US') + ' m'; $('coins').textContent = P.coins; $('chips').innerHTML = chips.map(c => `<span class="chip">${c}</span>`).join(''); }
+  const t = $('turn'), g = P.seg, near = state === 'play' && g.L - P.s < P.speed * 1.5 + turnWin(P.speed) && g.L - P.s > -HW;
+  if (near) { const txt = g.turn < 0 ? '❮❮ TURN LEFT' : 'TURN RIGHT ❯❯'; if (t.textContent !== txt) t.textContent = txt; }
+  t.classList.toggle('on', near);
+  $('hud').style.visibility = state === 'start' ? 'hidden' : 'visible';
+}
+
+// ============================================================ input
+addEventListener('keydown', e => {
+  if (e.repeat) return; const k = e.key;
+  if (k === 'ArrowLeft' || k === 'a' || k === 'A') side(-1);
+  else if (k === 'ArrowRight' || k === 'd' || k === 'D') side(1);
+  else if (k === 'ArrowUp' || k === 'w' || k === 'W' || k === ' ') { e.preventDefault(); if (state === 'paused') return resume(); jump(); }
+  else if (k === 'ArrowDown' || k === 's' || k === 'S') slide();
+  else if (k === 'p' || k === 'P' || k === 'Escape') state === 'paused' ? resume() : pause();
+  else if (k === 'Enter' && (state === 'start' || state === 'over')) startGame();
+});
+let touch = null;
+cv.addEventListener('pointerdown', e => { touch = {x: e.clientX, y: e.clientY, t: performance.now()}; });
+cv.addEventListener('pointerup', e => {
+  if (!touch) return; const dx = e.clientX - touch.x, dy = e.clientY - touch.y, m = Math.max(Math.abs(dx), Math.abs(dy)); touch = null;
+  if (state === 'start' || state === 'over') return startGame();
+  if (m < 22) return jump();
+  if (Math.abs(dx) > Math.abs(dy)) side(dx > 0 ? 1 : -1); else if (dy < 0) jump(); else slide();
+});
+function pause(){ if (state !== 'play') return; state = 'paused'; $('paused').classList.remove('hidden'); }
+function resume(){ if (state !== 'paused') return; state = 'play'; $('paused').classList.add('hidden'); last = performance.now(); }
+$('pause').addEventListener('click', () => state === 'paused' ? resume() : pause());
+$('resumeBtn').addEventListener('click', resume);
+$('goBtn').addEventListener('click', startGame);
+$('againBtn').addEventListener('click', startGame);
+addEventListener('blur', () => { if (!AUTO) pause(); });
+
+// ============================================================ sound (tiny WebAudio blips, like the game's sfx())
+let AC = null;
+function audioInit(){ try { if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)(); if (AC.state === 'suspended') AC.resume(); } catch (e) { AC = null; } }
+function sfx(f, dur, type, vol, to){ if (!AC || AUTO) return; try { const o = AC.createOscillator(), g = AC.createGain(), t = AC.currentTime; o.type = type; o.frequency.setValueAtTime(f, t); if (to) o.frequency.exponentialRampToValueAtTime(to, t + dur);
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.0001, t + dur); o.connect(g).connect(AC.destination); o.start(t); o.stop(t + dur + .02); } catch (e) {} }
+
+// ============================================================ boot
+let last = performance.now();
+function loop(now){
+  const dt = Math.min(.05, (now - last) / 1000); last = now;
+  if (state !== 'paused') update(dt);
+  render(); hud();
+  requestAnimationFrame(loop);
+}
+window.__uma = () => ({state, dist: P && Math.floor(P.dist - START_D), coins: P && P.coins, biome: P && P.seg.biome, death: P && P.death, cause: P && P.cause, segs: segments.length});
+fetch('manifest.json').then(r => r.json()).then(async list => {
+  await Promise.all(list.map(m => new Promise((ok, no) => { const i = new Image(); i.onload = () => { SPR[m.key] = {...m, img: i, ol: hexRgb(m.outline)}; ok(); }; i.onerror = () => no(new Error('missing ' + m.file)); i.src = m.file; })));
+  resize(); resetRun(); showBest();
+  if (AUTO) startGame();
+  requestAnimationFrame(loop);
+}).catch(err => { const d = $('err'); d.style.display = 'block'; d.textContent = 'Could not load the sprites: ' + err.message; });
+}
+</script>
+</body>
+</html>
