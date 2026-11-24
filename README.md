@@ -24,3 +24,14 @@ rebuilt from the original game's parts as an ink-studio sculpture and rendered f
 - `splat/bake.js`: sculpts each piece in ink-studio and renders its 32-direction atlas
   (`INK_STUDIO=/path/to/shapeshift-labs-ink-studio node tools/splat/bake.js [key ...]`).
 - `splat/pack.py`: packs the atlases into `splats/` and `splats.json` (`python3 tools/splat/pack.py .`).
+
+## Uma Run 3D, pixel-splat edition (`3d/`)
+
+The original 3D game with only the art changed: same chase camera, same running direction, same gameplay, characters,
+UI, music and saves. The world renders at about 230 pixels on the short side and is scaled up with hard pixel edges.
+A post pass draws 1 px ink outlines. Every non-character surface is shaded like the ink-studio pixel splats: a
+4-tone hue-shifted ramp per colour with world-locked splat speckle. The background (sky bands, clouds, the ground
+below and the floating islands) is restyled to match. Play it at `/3d/`.
+
+`tools/pixel3d/make_pixel.py` makes `3d/index.html` from the original game file
+(`python3 tools/pixel3d/make_pixel.py uma-run.html 3d/index.html`). `3d/vendor/` is three.js r170 (MIT).
