@@ -28,7 +28,8 @@ rebuilt from the original game's parts as an ink-studio sculpture and rendered f
 ## Uma Run 3D, pixel-splat edition (`3d/`)
 
 The original 3D game with only the art changed: same chase camera, same running direction, same gameplay, characters,
-UI, music and saves. The world renders at about 230 pixels on the short side and is scaled up with hard pixel edges.
+UI, music and saves. The runner and the chasers keep their original full-resolution anime look. The world renders at
+about 230 pixels on the short side and is scaled up with hard pixel edges.
 A post pass draws 1 px ink outlines. Every non-character surface is shaded like the ink-studio pixel splats: a
 4-tone hue-shifted ramp per colour with world-locked splat speckle. The background (sky bands, clouds, the ground
 below and the floating islands) is restyled to match. Play it at `/3d/`.

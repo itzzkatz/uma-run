@@ -91,41 +91,73 @@ sub("import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
     "}\n")
 
 # ------------------------------------------------------------------ 2. low-res render + nearest upscale + 1 px ink outline pass
+RENDER_JS = r"""const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(1);
+// Pixel art: the world renders at ~230 px on the short side and every art pixel becomes a whole block of screen pixels.
+// The runner and the chasers are drawn afterwards at full resolution in their original look, hidden behind pixel scenery
+// by the world's depth, and they still cast their shadows into the pixel world.
+const PIX = { z: 3, m: 3, w: 2, h: 2 }, CHAR_LAYER = 30;
+const pixRT = new THREE.WebGLRenderTarget(2, 2, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthTexture: new THREE.DepthTexture(2, 2) });
+const inkRT = new THREE.WebGLRenderTarget(2, 2, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false });
+pixRT.texture.colorSpace = inkRT.texture.colorSpace = THREE.SRGBColorSpace;
+const pixU = { tCol: { value: pixRT.texture }, tInk: { value: inkRT.texture }, tDep: { value: pixRT.depthTexture }, uRes: { value: new THREE.Vector2(2, 2) },
+  uNF: { value: new THREE.Vector2(0.1, 600) }, uFog: { value: new THREE.Vector2(48, 220) } };
+const PIX_VS = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
+const pixCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1), inkScene = new THREE.Scene(), outScene = new THREE.Scene();
+// 1 px ink outline where a nearer surface ends, coloured as a dark version of that surface (low res)
+inkScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({ uniforms: pixU, depthTest: false, depthWrite: false, vertexShader: PIX_VS,
+  fragmentShader: 'uniform sampler2D tCol; uniform sampler2D tDep; uniform vec2 uRes; uniform vec2 uNF; uniform vec2 uFog; varying vec2 vUv;\n' +
+    'float lin(float d){ return uNF.x * uNF.y / (uNF.y - d * (uNF.y - uNF.x)); }\n' +
+    'void main(){ vec2 px = 1.0 / uRes; vec3 c = texture2D(tCol, vUv).rgb; float d0 = lin(texture2D(tDep, vUv).x), dn = d0; vec3 nc = c;\n' +
+    ' for (int i = 0; i < 4; i++) { vec2 o = i == 0 ? vec2(px.x, 0.0) : i == 1 ? vec2(-px.x, 0.0) : i == 2 ? vec2(0.0, px.y) : vec2(0.0, -px.y);\n' +
+    '  float d = lin(texture2D(tDep, vUv + o).x); if (d < dn) { dn = d; nc = texture2D(tCol, vUv + o).rgb; } }\n' +
+    ' float edge = step(0.07 * d0 + 0.35, d0 - dn) * (1.0 - 0.75 * smoothstep(uFog.x, uFog.y, dn));\n' +
+    ' vec3 ink = nc * vec3(0.085, 0.07, 0.1) + vec3(0.002, 0.001, 0.004);\n' +
+    ' gl_FragColor = vec4(mix(c, ink, edge), 1.0);\n#include <colorspace_fragment>\n}' })));
+// full-res composite: the pixel image in hard blocks, plus the world's depth (pushed back 15 cm so feet never sink into a block)
+outScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({ uniforms: pixU, depthTest: true, depthWrite: true, depthFunc: THREE.AlwaysDepth, vertexShader: PIX_VS,
+  fragmentShader: 'uniform sampler2D tInk; uniform sampler2D tDep; uniform vec2 uNF; varying vec2 vUv;\n' +
+    'void main(){ float d = texture2D(tDep, vUv).x; float n = uNF.x, f = uNF.y;\n' +
+    ' if (d < 1.0) { float z = n * f / (f - d * (f - n)) + 0.15; d = clamp(f * (z - n) / (z * (f - n)), 0.0, 1.0); }\n' +
+    ' gl_FragDepth = d; gl_FragColor = texture2D(tInk, vUv);\n#include <colorspace_fragment>\n}' })));
+function pixSize() {
+  const dpr = window.devicePixelRatio || 1, Wd = Math.round(innerWidth * dpr), Hd = Math.round(innerHeight * dpr);
+  if (!Wd || !Hd) return;
+  PIX.z = Math.max(2, Math.round(Math.min(Wd, Hd) / 230)); PIX.w = Math.ceil(Wd / PIX.z); PIX.h = Math.ceil(Hd / PIX.z);
+  PIX.m = dpr <= 2 ? PIX.z : Math.max(2, Math.round(PIX.z * 2 / dpr));     // canvas pixels per art pixel (like the original, at most ~2x CSS)
+  renderer.setSize(PIX.w * PIX.m, PIX.h * PIX.m, false); pixRT.setSize(PIX.w, PIX.h); inkRT.setSize(PIX.w, PIX.h); pixU.uRes.value.set(PIX.w, PIX.h);
+  const st = renderer.domElement.style; st.width = (PIX.w * PIX.z / dpr) + 'px'; st.height = (PIX.h * PIX.z / dpr) + 'px';
+}
+const _chars = [], _charMats = [];
+function charObjects() {                          // the runner (with her tube + shield) and the chasers
+  _chars.length = 0;
+  const add = o => { if (o.material) _chars.push(o); };
+  if (typeof hero !== 'undefined') hero.traverse(add);
+  if (typeof monkeys !== 'undefined') for (const m of monkeys) m.g.traverse(add);
+  return _chars;
+}
+let _lightsTagged = false;
+function pixRender(sc, cam) {
+  if (!_lightsTagged) { sc.traverse(o => { if (o.isLight) o.layers.enable(CHAR_LAYER); }); _lightsTagged = true; }
+  pixU.uNF.value.set(cam.near, cam.far); if (sc.fog) pixU.uFog.value.set(sc.fog.near, sc.fog.far);
+  const ch = charObjects(); _charMats.length = 0;                                  // (chasers share materials: save each one once)
+  for (const o of ch) { o.layers.enable(CHAR_LAYER); for (const m of Array.isArray(o.material) ? o.material : [o.material]) { if (m.userData.pixHid) continue; m.userData.pixHid = true; _charMats.push(m, m.colorWrite, m.depthWrite); m.colorWrite = false; m.depthWrite = false; } }
+  renderer.setRenderTarget(pixRT); renderer.render(sc, cam);                       // the pixel world (characters only cast shadows here)
+  for (let i = 0; i < _charMats.length; i += 3) { const m = _charMats[i]; m.colorWrite = _charMats[i + 1]; m.depthWrite = _charMats[i + 2]; m.userData.pixHid = false; }
+  renderer.setRenderTarget(inkRT); renderer.render(inkScene, pixCam);
+  renderer.setRenderTarget(null); renderer.render(outScene, pixCam);
+  const ac = renderer.autoClear, su = renderer.shadowMap.autoUpdate, lm = cam.layers.mask;  // the characters, full resolution, original look
+  const bg = sc.background; sc.background = null;                                   // a colour background would clear the screen
+  renderer.autoClear = false; renderer.shadowMap.autoUpdate = false; cam.layers.set(CHAR_LAYER);
+  renderer.render(sc, cam);
+  cam.layers.mask = lm; renderer.autoClear = ac; renderer.shadowMap.autoUpdate = su; sc.background = bg;
+}
+renderer.domElement.style.imageRendering = 'pixelated';
+pixSize();
+"""
 sub("const renderer = new THREE.WebGLRenderer({ antialias: true });\n"
     "renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));\n"
-    "renderer.setSize(innerWidth, innerHeight);\n",
-    "const renderer = new THREE.WebGLRenderer({ antialias: false });\n"
-    "renderer.setPixelRatio(1);\n"
-    "// pixel art: the world renders at ~230 px on the short side, then every art pixel is drawn as a whole block of screen pixels\n"
-    "const PIX = { z: 3, w: 2, h: 2 };\n"
-    "const pixRT = new THREE.WebGLRenderTarget(2, 2, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthTexture: new THREE.DepthTexture(2, 2) });\n"
-    "pixRT.texture.colorSpace = THREE.SRGBColorSpace;\n"
-    "const pixU = { tCol: { value: pixRT.texture }, tDep: { value: pixRT.depthTexture }, uRes: { value: new THREE.Vector2(2, 2) }, uNF: { value: new THREE.Vector2(0.1, 600) }, uFog: { value: new THREE.Vector2(48, 220) } };\n"
-    "const pixScene = new THREE.Scene(), pixCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);\n"
-    "pixScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({ uniforms: pixU, depthTest: false, depthWrite: false,\n"
-    "  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',\n"
-    "  fragmentShader: 'uniform sampler2D tCol; uniform sampler2D tDep; uniform vec2 uRes; uniform vec2 uNF; uniform vec2 uFog; varying vec2 vUv;\\n' +\n"
-    "    'float lin(float d){ return uNF.x * uNF.y / (uNF.y - d * (uNF.y - uNF.x)); }\\n' +\n"
-    "    'void main(){ vec2 px = 1.0 / uRes; vec3 c = texture2D(tCol, vUv).rgb; float d0 = lin(texture2D(tDep, vUv).x), dn = d0; vec3 nc = c;\\n' +\n"
-    "    ' for (int i = 0; i < 4; i++) { vec2 o = i == 0 ? vec2(px.x, 0.0) : i == 1 ? vec2(-px.x, 0.0) : i == 2 ? vec2(0.0, px.y) : vec2(0.0, -px.y);\\n' +\n"
-    "    '  float d = lin(texture2D(tDep, vUv + o).x); if (d < dn) { dn = d; nc = texture2D(tCol, vUv + o).rgb; } }\\n' +\n"
-    "    // ink where a nearer surface ends: this pixel is the 1 px rim around it, coloured as a dark version of that surface\n"
-    "    ' float edge = step(0.07 * d0 + 0.35, d0 - dn) * (1.0 - 0.75 * smoothstep(uFog.x, uFog.y, dn));\\n' +\n"
-    "    ' vec3 ink = nc * vec3(0.085, 0.07, 0.1) + vec3(0.002, 0.001, 0.004);\\n' +\n"
-    "    ' gl_FragColor = vec4(mix(c, ink, edge), 1.0);\\n#include <colorspace_fragment>\\n}' })));\n"
-    "function pixSize() {\n"
-    "  const dpr = window.devicePixelRatio || 1, Wd = Math.round(innerWidth * dpr), Hd = Math.round(innerHeight * dpr);\n"
-    "  if (!Wd || !Hd) return;\n"
-    "  PIX.z = Math.max(2, Math.round(Math.min(Wd, Hd) / 230)); PIX.w = Math.ceil(Wd / PIX.z); PIX.h = Math.ceil(Hd / PIX.z);\n"
-    "  renderer.setSize(PIX.w, PIX.h, false); pixRT.setSize(PIX.w, PIX.h); pixU.uRes.value.set(PIX.w, PIX.h);\n"
-    "  const st = renderer.domElement.style; st.width = (PIX.w * PIX.z / dpr) + 'px'; st.height = (PIX.h * PIX.z / dpr) + 'px';\n"
-    "}\n"
-    "function pixRender(sc, cam) {\n"
-    "  pixU.uNF.value.set(cam.near, cam.far); if (sc.fog) pixU.uFog.value.set(sc.fog.near, sc.fog.far);\n"
-    "  renderer.setRenderTarget(pixRT); renderer.render(sc, cam); renderer.setRenderTarget(null); renderer.render(pixScene, pixCam);\n"
-    "}\n"
-    "renderer.domElement.style.imageRendering = 'pixelated';\n"
-    "pixSize();\n")
+    "renderer.setSize(innerWidth, innerHeight);\n", RENDER_JS)
 sub("addEventListener('resize', () => {\n"
     "  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();\n"
     "  renderer.setSize(innerWidth, innerHeight);\n"
