@@ -935,15 +935,22 @@ const pixU = { tCol: { value: pixRT.texture }, tInk: { value: inkRT.texture }, t
   uNF: { value: new THREE.Vector2(0.1, 600) }, uFog: { value: new THREE.Vector2(48, 220) } };
 const PIX_VS = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
 const pixCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1), inkScene = new THREE.Scene(), outScene = new THREE.Scene();
-// 1 px ink outline where a nearer surface ends, coloured as a dark version of that surface (low res)
+// 1 px ink outline where a nearer surface ends, coloured as a dark version of that surface (low res). A neighbour only counts as
+// nearer if it is nearer than this pixel's own surface would be there: 1/z is linear across the screen on any flat surface, so the
+// far stretch of path (seen almost edge-on, each pixel row much farther than the last) is never mistaken for an edge.
 inkScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({ uniforms: pixU, depthTest: false, depthWrite: false, vertexShader: PIX_VS,
   fragmentShader: 'uniform sampler2D tCol; uniform sampler2D tDep; uniform vec2 uRes; uniform vec2 uNF; uniform vec2 uFog; varying vec2 vUv;\n' +
-    'float lin(float d){ return uNF.x * uNF.y / (uNF.y - d * (uNF.y - uNF.x)); }\n' +
-    'void main(){ vec2 px = 1.0 / uRes; vec3 c = texture2D(tCol, vUv).rgb; float d0 = lin(texture2D(tDep, vUv).x), dn = d0; vec3 nc = c;\n' +
-    ' for (int i = 0; i < 4; i++) { vec2 o = i == 0 ? vec2(px.x, 0.0) : i == 1 ? vec2(-px.x, 0.0) : i == 2 ? vec2(0.0, px.y) : vec2(0.0, -px.y);\n' +
-    '  float d = lin(texture2D(tDep, vUv + o).x); if (d < dn) { dn = d; nc = texture2D(tCol, vUv + o).rgb; } }\n' +
-    ' float edge = step(0.07 * d0 + 0.35, d0 - dn) * (1.0 - 0.75 * smoothstep(uFog.x, uFog.y, dn));\n' +
-    ' vec3 ink = nc * vec3(0.085, 0.07, 0.1) + vec3(0.002, 0.001, 0.004);\n' +
+    'float iw(vec2 uv){ float d = texture2D(tDep, uv).x; return (uNF.y - d * (uNF.y - uNF.x)) / (uNF.x * uNF.y); }\n' +
+    'void main(){ vec2 px = 1.0 / uRes; vec3 c = texture2D(tCol, vUv).rgb; float w0 = iw(vUv);\n' +
+    ' vec2 ox = vec2(px.x, 0.0), oy = vec2(0.0, px.y); float wr = iw(vUv + ox), wl = iw(vUv - ox), wu = iw(vUv + oy), wd = iw(vUv - oy);\n' +
+    ' float best = 0.0; vec2 bo = vec2(0.0); float j;\n' +
+    ' j = wr - (2.0 * w0 - wl); if (j > best) { best = j; bo = ox; }\n' +
+    ' j = wl - (2.0 * w0 - wr); if (j > best) { best = j; bo = -ox; }\n' +
+    ' j = wu - (2.0 * w0 - wd); if (j > best) { best = j; bo = oy; }\n' +
+    ' j = wd - (2.0 * w0 - wu); if (j > best) { best = j; bo = -oy; }\n' +
+    ' float wn = iw(vUv + bo), dn = 1.0 / max(wn, 1e-6);\n' +
+    ' float edge = step(0.08 * w0 + 0.0004, best) * (1.0 - 0.75 * smoothstep(uFog.x, uFog.y, dn));\n' +
+    ' vec3 ink = texture2D(tCol, vUv + bo).rgb * vec3(0.085, 0.07, 0.1) + vec3(0.002, 0.001, 0.004);\n' +
     ' gl_FragColor = vec4(mix(c, ink, edge), 1.0);\n#include <colorspace_fragment>\n}' })));
 // full-res composite: the pixel image in hard blocks, plus the world's depth (pushed back 15 cm so feet never sink into a block)
 outScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({ uniforms: pixU, depthTest: true, depthWrite: true, depthFunc: THREE.AlwaysDepth, vertexShader: PIX_VS,
