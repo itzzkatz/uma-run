@@ -41,7 +41,7 @@ float spShift(float h, float target, float amt){ float d = fract(target - h + 1.
 // ink-studio style ramp: tone 0 deep shadow, 1 shadow, 2 the colour itself, 3 highlight (shadows lean blue, highlights lean warm)
 vec3 spTone(vec3 lin, float s){
   vec3 h = spHsv(pow(max(lin, vec3(0.0)), vec3(1.0 / 2.2))); bool dark = h.z < 0.35;
-  if (s < 0.5) h = vec3(spShift(h.x, 0.62, 0.05), min(1.0, h.y * 1.15), h.z * (dark ? 0.7 : 0.52));
+  if (s < 0.5) h = vec3(spShift(h.x, 0.62, 0.05), min(1.0, h.y * 1.12), h.z * (dark ? 0.78 : 0.6));
   else if (s < 1.5) h = vec3(spShift(h.x, 0.62, 0.025), min(1.0, h.y * 1.08), h.z * (dark ? 0.95 : 0.74));
   else if (s > 2.5) h = vec3(spShift(h.x, 0.14, 0.02), h.y * 0.9, min(1.0, dark ? h.z * 1.5 + 0.05 : h.z + (1.0 - h.z) * 0.3));
   return pow(spRgb(h), vec3(2.2));
@@ -58,15 +58,15 @@ float spNoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 *
   float a = spHash(vec3(i, 3.0)), b = spHash(vec3(i + vec2(1.0, 0.0), 3.0)), c = spHash(vec3(i + vec2(0.0, 1.0), 3.0)), d = spHash(vec3(i + vec2(1.0, 1.0), 3.0));
   return mix(mix(a, b, f.x), mix(c, d, f.x), f.y); }
 // pick a tone from the light level k (1 = plain sunlit; the game's light gives ~0.37 in cast shadow, ~0.62 on shaded sides,
-// ~0.8 on half-lit sides, ~0.96 in full sun), dither the tone edges per splat, and sprinkle a few darker and lighter splats
+// ~0.8 on half-lit sides, ~0.96 in full sun), dither the tone edges per splat, and sprinkle a few lighter splats
 vec3 splatK(vec3 base, float k, vec3 w){
   float h = spCell(w), t = k < SPLAT_K ? (k - 0.14) / 0.36 : 2.0 + (k - SPLAT_K) / 0.14;
-  t += (h - 0.5) * 0.45;
+  t += (h - 0.5) * 0.3;
 #ifdef SPLAT_BLOTCH
-  float bl = spNoise(w.xz / 9.0) * 0.65 + spNoise(w.xz / 3.1) * 0.35; t -= step(0.56, bl) * 0.75 + step(0.74, bl) * 0.5;
+  float bl = spNoise(w.xz / 9.0) * 0.65 + spNoise(w.xz / 3.1) * 0.35; t -= step(0.56, bl) * 0.6 + step(0.74, bl) * 0.35;
 #endif
   float s = clamp(floor(t), 0.0, 3.0);
-  if (h < 0.06) s = max(0.0, s - 1.0); else if (h > 0.955) s = min(3.0, s + 1.0);
+  if (h > 0.94) s = min(3.0, s + 1.0);          // a sprinkle of lighter splats (no dark ones: they read as black splotches)
   return spTone(base, s);
 }
 vec3 splatShade(vec3 base, vec3 lit, vec3 w){
