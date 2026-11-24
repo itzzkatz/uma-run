@@ -15,6 +15,7 @@ from pathlib import Path
 
 src_path, out_path = Path(sys.argv[1]), Path(sys.argv[2])
 TEST = "--test" in sys.argv
+DEBUG = "--debug" in sys.argv
 s = src_path.read_text()
 
 
@@ -144,6 +145,7 @@ function charObjects() {                          // the runner (with her tube +
 }
 let _lightsTagged = false;
 function pixRender(sc, cam) {
+  if (!renderer.info.autoReset) renderer.info.reset();
   if (!_lightsTagged) { sc.traverse(o => { if (o.isLight) o.layers.enable(CHAR_LAYER); }); _lightsTagged = true; }
   // the track, obstacles and scenery never cast shadows (re-checked whenever a segment gains or loses pieces)
   if (typeof segments !== 'undefined') for (const g of segments) { const gr = g.group; if (gr && gr.userData.pixShadowN !== gr.children.length) { gr.userData.pixShadowN = gr.children.length; gr.traverse(o => { o.castShadow = false; }); } }
@@ -236,6 +238,14 @@ sub("  sun.position.set(pos.x - 6, 12, pos.z + 4); sun.target.position.copy(pos)
 
 if TEST:
     sub("const params = new URLSearchParams('');", "const params = new URLSearchParams(window.__UMA_TEST_PARAMS || '');")
+elif DEBUG:
+    import debug_kit as K
+    sub("const params = new URLSearchParams('');", "const params = new URLSearchParams(location.search);   // debug build: dev switches on")
+    sub("<head>\n", "<head>\n" + K.HEAD_JS)
+    sub("window.__game = { P, mamboFit", K.STATE_JS + "window.__game = { P, mamboFit")
+    sub("async function lbOnGameOver() {", "async function lbOnGameOver() { return;   // debug build: never posts to the leaderboard\n")
+    sub("</body>", K.PANEL_HTML + "</body>")
+    sub("<title>", "<title>[DEBUG] ")
 
 out_path.write_text(s)
 print("wrote", out_path, len(s))

@@ -978,6 +978,7 @@ function charObjects() {                          // the runner (with her tube +
 }
 let _lightsTagged = false;
 function pixRender(sc, cam) {
+  if (!renderer.info.autoReset) renderer.info.reset();
   if (!_lightsTagged) { sc.traverse(o => { if (o.isLight) o.layers.enable(CHAR_LAYER); }); _lightsTagged = true; }
   // the track, obstacles and scenery never cast shadows (re-checked whenever a segment gains or loses pieces)
   if (typeof segments !== 'undefined') for (const g of segments) { const gr = g.group; if (gr && gr.userData.pixShadowN !== gr.children.length) { gr.userData.pixShadowN = gr.children.length; gr.traverse(o => { o.castShadow = false; }); } }

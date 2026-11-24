@@ -36,3 +36,11 @@ below and the floating islands) is restyled to match. Play it at `/3d/`.
 
 `tools/pixel3d/make_pixel.py` makes `3d/index.html` from the original game file
 (`python3 tools/pixel3d/make_pixel.py uma-run.html 3d/index.html`). `3d/vendor/` is three.js r170 (MIT).
+
+### Debug version (`3d/debug.html`)
+
+The same game with a debug panel. It has buttons that start a run just before each biome (Jungle, River, Inferno,
+Inferno back to jungle, Tundra, Highway Dash), plus god mode with the game's autopilot and a forced power-up option. A
+live readout shows biome, distance, speed, FPS and draw calls. **Tour all biomes** runs every test in a row and ends
+with a pass/fail report. Debug runs use their own save (a `dbg:` prefix on every storage key) and never post to the
+leaderboard. Build it with `python3 tools/pixel3d/make_pixel.py uma-run.html 3d/debug.html --debug`.
