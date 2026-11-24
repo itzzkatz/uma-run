@@ -488,6 +488,7 @@ const cv = $('cv'), ctx = cv.getContext('2d'), buf = document.createElement('can
 let Z = 4, bw = 0, bh = 0, img = null, px32 = null;
 function resize(){
   const dpr = Math.min(3, devicePixelRatio || 1), Wd = Math.round(innerWidth * dpr), Hd = Math.round(innerHeight * dpr);
+  if (!Wd || !Hd) return;                     // a hidden or collapsed view reports 0x0 for a moment: keep the last size
   cv.width = Wd; cv.height = Hd; Z = Math.max(2, Math.round(Math.min(Wd / 118, Hd / 215)));
   bw = Math.ceil(Wd / Z); bh = Math.ceil(Hd / Z); buf.width = bw; buf.height = bh; img = bg.createImageData(bw, bh); px32 = new Uint32Array(img.data.buffer);
 }
