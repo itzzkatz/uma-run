@@ -133,12 +133,13 @@ function pixSize() {
   const st = renderer.domElement.style; st.width = (PIX.w * PIX.z / dpr) + 'px'; st.height = (PIX.h * PIX.z / dpr) + 'px';
 }
 const _chars = [], _charMats = [];
-function charObjects() {                          // the runner (with her tube + shield), the chasers and the pickup sparkles
+function charObjects() {                          // the runner (with her tube + shield), the chasers, pickup sparkles and power-ups
   _chars.length = 0;
   const add = o => { if (o.material) _chars.push(o); };
   if (typeof hero !== 'undefined') hero.traverse(add);
   if (typeof monkeys !== 'undefined') for (const m of monkeys) m.g.traverse(add);
   if (typeof sparks !== 'undefined') for (const k of sparks) if (k.sp.visible) _chars.push(k.sp);
+  if (typeof segments !== 'undefined') for (const g of segments) if (g.pickups) for (const p of g.pickups) if (p.mesh) p.mesh.traverse(add);   // power-up bubbles: original icons
   return _chars;
 }
 let _lightsTagged = false;
