@@ -94,14 +94,21 @@ renderer.setPixelRatio(1);
 // Pixel art: the world renders at ~230 px on the short side and every art pixel becomes a whole block of screen pixels.
 // The runner and the chasers are drawn afterwards at full resolution in their original look, hidden behind pixel scenery
 // by the world's depth, and they still cast their shadows into the pixel world.
-const PIX = { z: 3, m: 3, w: 2, h: 2 }, CHAR_LAYER = 30;
-const pixRT = new THREE.WebGLRenderTarget(2, 2, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthTexture: new THREE.DepthTexture(2, 2) });
+const PIX = { z: 3, m: 3, w: 2, h: 2 }, CHAR_LAYER = 30, FX_LAYER = 29;
+// 4x multisampling: things thinner than an art pixel (poles, rails, far branches) blend into a partial pixel instead of popping on and off
+const pixRT = new THREE.WebGLRenderTarget(2, 2, { samples: 4, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthTexture: new THREE.DepthTexture(2, 2) });
 const inkRT = new THREE.WebGLRenderTarget(2, 2, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false });
-pixRT.texture.colorSpace = inkRT.texture.colorSpace = THREE.SRGBColorSpace;
-const pixU = { tCol: { value: pixRT.texture }, tInk: { value: inkRT.texture }, tDep: { value: pixRT.depthTexture }, uRes: { value: new THREE.Vector2(2, 2) },
+// fxRT = the inked image plus the world's depth, so see-through effects are drawn after the ink and still hide behind scenery
+// (the ink pass itself can't target a buffer holding the depth it reads, hence the copy)
+const fxRT = new THREE.WebGLRenderTarget(2, 2, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
+fxRT.depthTexture = pixRT.depthTexture;
+pixRT.texture.colorSpace = inkRT.texture.colorSpace = fxRT.texture.colorSpace = THREE.SRGBColorSpace;
+const pixU = { tCol: { value: pixRT.texture }, tInk: { value: inkRT.texture }, tFx: { value: fxRT.texture }, tDep: { value: pixRT.depthTexture }, uRes: { value: new THREE.Vector2(2, 2) },
   uNF: { value: new THREE.Vector2(0.1, 600) }, uFog: { value: new THREE.Vector2(48, 220) } };
 const PIX_VS = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
-const pixCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1), inkScene = new THREE.Scene(), outScene = new THREE.Scene();
+const pixCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1), inkScene = new THREE.Scene(), outScene = new THREE.Scene(), copyScene = new THREE.Scene();
+copyScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({ uniforms: pixU, depthTest: false, depthWrite: false, vertexShader: PIX_VS,
+  fragmentShader: 'uniform sampler2D tInk; varying vec2 vUv; void main(){ gl_FragColor = texture2D(tInk, vUv);\n#include <colorspace_fragment>\n}' })));
 // 1 px ink outline where a nearer surface ends, coloured as a dark version of that surface (low res). A neighbour only counts as
 // nearer if it is nearer than this pixel's own surface would be there: 1/z is linear across the screen on any flat surface, so the
 // far stretch of path (seen almost edge-on, each pixel row much farther than the last) is never mistaken for an edge.
@@ -111,55 +118,65 @@ inkScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMater
     'void main(){ vec2 px = 1.0 / uRes; vec3 c = texture2D(tCol, vUv).rgb; float w0 = iw(vUv);\n' +
     ' vec2 ox = vec2(px.x, 0.0), oy = vec2(0.0, px.y); float wr = iw(vUv + ox), wl = iw(vUv - ox), wu = iw(vUv + oy), wd = iw(vUv - oy);\n' +
     ' float best = 0.0; vec2 bo = vec2(0.0); float j;\n' +
-    ' j = wr - (2.0 * w0 - wl); if (j > best) { best = j; bo = ox; }\n' +
-    ' j = wl - (2.0 * w0 - wr); if (j > best) { best = j; bo = -ox; }\n' +
-    ' j = wu - (2.0 * w0 - wd); if (j > best) { best = j; bo = oy; }\n' +
-    ' j = wd - (2.0 * w0 - wu); if (j > best) { best = j; bo = -oy; }\n' +
-    ' float wn = iw(vUv + bo), dn = 1.0 / max(wn, 1e-6);\n' +
-    ' float edge = step(0.08 * w0 + 0.0004, best) * (1.0 - 0.75 * smoothstep(uFog.x, uFog.y, dn));\n' +
+    // neighbour nearer than this pixel's own surface would be there (plane through the opposite neighbour); if this pixel is itself
+    // a sliver (opposite neighbour on another surface), it needs a clear 30% jump instead
+    ' #define TST(wn, wo, off) j = abs(w0 - wo) < 0.25 * w0 ? wn - (2.0 * w0 - wo) : wn - w0 * 1.22; if (j > best) { best = j; bo = off; }\n' +
+    ' TST(wr, wl, ox) TST(wl, wr, -ox) TST(wu, wd, oy) TST(wd, wu, -oy)\n' +
+    ' float wn = iw(vUv + bo), w2 = iw(vUv + 2.0 * bo), dn = 1.0 / max(wn, 1e-6);\n' +
+    // only ink around things at least 2 px thick: a 1-px pole or rail would flash a 3-px dark stripe on and off as it moves
+    ' float thick = step(abs(w2 - wn), 0.2 * wn);\n' +
+    ' float edge = step(0.08 * w0 + 0.0004, best) * thick * (1.0 - smoothstep(uFog.x, mix(uFog.x, uFog.y, 0.6), dn));\n' +
     ' vec3 ink = texture2D(tCol, vUv + bo).rgb * vec3(0.085, 0.07, 0.1) + vec3(0.002, 0.001, 0.004);\n' +
     ' gl_FragColor = vec4(mix(c, ink, edge), 1.0);\n#include <colorspace_fragment>\n}' })));
 // full-res composite: the pixel image in hard blocks, plus the world's depth (pushed back 15 cm so feet never sink into a block)
 outScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({ uniforms: pixU, depthTest: true, depthWrite: true, depthFunc: THREE.AlwaysDepth, vertexShader: PIX_VS,
-  fragmentShader: 'uniform sampler2D tInk; uniform sampler2D tDep; uniform vec2 uNF; varying vec2 vUv;\n' +
+  fragmentShader: 'uniform sampler2D tFx; uniform sampler2D tDep; uniform vec2 uNF; varying vec2 vUv;\n' +
     'void main(){ float d = texture2D(tDep, vUv).x; float n = uNF.x, f = uNF.y;\n' +
     ' if (d < 1.0) { float z = n * f / (f - d * (f - n)) + 0.15; d = clamp(f * (z - n) / (z * (f - n)), 0.0, 1.0); }\n' +
-    ' gl_FragDepth = d; gl_FragColor = texture2D(tInk, vUv);\n#include <colorspace_fragment>\n}' })));
+    ' gl_FragDepth = d; gl_FragColor = texture2D(tFx, vUv);\n#include <colorspace_fragment>\n}' })));
 function pixSize() {
   const dpr = window.devicePixelRatio || 1, Wd = Math.round(innerWidth * dpr), Hd = Math.round(innerHeight * dpr);
   if (!Wd || !Hd) return;
   PIX.z = Math.max(2, Math.round(Math.min(Wd, Hd) / 230)); PIX.w = Math.ceil(Wd / PIX.z); PIX.h = Math.ceil(Hd / PIX.z);
   PIX.m = dpr <= 2 ? PIX.z : Math.max(2, Math.round(PIX.z * 2 / dpr));     // canvas pixels per art pixel (like the original, at most ~2x CSS)
-  renderer.setSize(PIX.w * PIX.m, PIX.h * PIX.m, false); pixRT.setSize(PIX.w, PIX.h); inkRT.setSize(PIX.w, PIX.h); pixU.uRes.value.set(PIX.w, PIX.h);
+  renderer.setSize(PIX.w * PIX.m, PIX.h * PIX.m, false); pixRT.setSize(PIX.w, PIX.h); inkRT.setSize(PIX.w, PIX.h); fxRT.setSize(PIX.w, PIX.h); pixU.uRes.value.set(PIX.w, PIX.h);
   const st = renderer.domElement.style; st.width = (PIX.w * PIX.z / dpr) + 'px'; st.height = (PIX.h * PIX.z / dpr) + 'px';
 }
 const _chars = [], _charMats = [];
 function charObjects() {                          // the runner (with her tube + shield), the chasers, pickup sparkles and power-ups
   _chars.length = 0;
-  const add = o => { if (o.material) _chars.push(o); };
+  const add = o => { if (o.material) { _chars.push(o); o.userData.pixChar = true; if (o.layers.isEnabled(FX_LAYER)) { o.layers.disable(FX_LAYER); o.layers.enable(0); } } };
   if (typeof hero !== 'undefined') hero.traverse(add);
   if (typeof monkeys !== 'undefined') for (const m of monkeys) m.g.traverse(add);
-  if (typeof sparks !== 'undefined') for (const k of sparks) if (k.sp.visible) _chars.push(k.sp);
+  if (typeof sparks !== 'undefined') for (const k of sparks) add(k.sp);
   if (typeof segments !== 'undefined') for (const g of segments) if (g.pickups) for (const p of g.pickups) if (p.mesh) p.mesh.traverse(add);   // power-up bubbles: original icons
   return _chars;
 }
-let _lightsTagged = false;
+let _lightsTagged = false, _fxTick = 0;
+function isFx(o) { const ms = Array.isArray(o.material) ? o.material : [o.material]; return ms.some(m => m && (m.transparent || m.blending === THREE.AdditiveBlending)); }
+function tagFx(sc) {                              // see-through world objects get their own layer: drawn after the ink outlines, never inked over
+  sc.traverse(o => { if (!o.material || o.isLight || o.userData.pixChar) return;
+    const fx = isFx(o), on = o.layers.isEnabled(FX_LAYER);
+    if (fx && !on) { o.layers.disable(0); o.layers.enable(FX_LAYER); } else if (!fx && on) { o.layers.disable(FX_LAYER); o.layers.enable(0); } });
+}
 function pixRender(sc, cam) {
   if (!renderer.info.autoReset) renderer.info.reset();
-  if (!_lightsTagged) { sc.traverse(o => { if (o.isLight) o.layers.enable(CHAR_LAYER); }); _lightsTagged = true; }
+  if (!_lightsTagged) { sc.traverse(o => { if (o.isLight) { o.layers.enable(CHAR_LAYER); o.layers.enable(FX_LAYER); } }); _lightsTagged = true; }
   // the track, obstacles and scenery never cast shadows (re-checked whenever a segment gains or loses pieces)
   if (typeof segments !== 'undefined') for (const g of segments) { const gr = g.group; if (gr && gr.userData.pixShadowN !== gr.children.length) { gr.userData.pixShadowN = gr.children.length; gr.traverse(o => { o.castShadow = false; }); } }
   pixU.uNF.value.set(cam.near, cam.far); if (sc.fog) pixU.uFog.value.set(sc.fog.near, sc.fog.far);
   const ch = charObjects(); _charMats.length = 0;                                  // (chasers share materials: save each one once)
   for (const o of ch) { o.layers.enable(CHAR_LAYER); for (const m of Array.isArray(o.material) ? o.material : [o.material]) { if (m.userData.pixHid) continue; m.userData.pixHid = true; _charMats.push(m, m.colorWrite, m.depthWrite); m.colorWrite = false; m.depthWrite = false; } }
-  renderer.setRenderTarget(pixRT); renderer.render(sc, cam);                       // the pixel world (characters only cast shadows here)
+  if ((_fxTick++ % 30) === 0) tagFx(sc);
+  renderer.setRenderTarget(pixRT); renderer.render(sc, cam);                       // the opaque pixel world (characters only cast shadows here)
   for (let i = 0; i < _charMats.length; i += 3) { const m = _charMats[i]; m.colorWrite = _charMats[i + 1]; m.depthWrite = _charMats[i + 2]; m.userData.pixHid = false; }
-  renderer.setRenderTarget(inkRT); renderer.render(inkScene, pixCam);
-  renderer.setRenderTarget(null); renderer.render(outScene, pixCam);
-  const ac = renderer.autoClear, su = renderer.shadowMap.autoUpdate, lm = cam.layers.mask;  // the characters, full resolution, original look
-  const bg = sc.background; sc.background = null;                                   // a colour background would clear the screen
-  renderer.autoClear = false; renderer.shadowMap.autoUpdate = false; cam.layers.set(CHAR_LAYER);
-  renderer.render(sc, cam);
+  const ac = renderer.autoClear, su = renderer.shadowMap.autoUpdate, lm = cam.layers.mask, bg = sc.background;
+  renderer.setRenderTarget(inkRT); renderer.render(inkScene, pixCam);              // ink outlines (opaque world only)
+  renderer.autoClear = false; renderer.setRenderTarget(fxRT); renderer.render(copyScene, pixCam);
+  sc.background = null; renderer.shadowMap.autoUpdate = false;                       // a colour background would clear the target
+  cam.layers.set(FX_LAYER); renderer.render(sc, cam);                                // flames, glows, particles, water: over the ink, behind scenery
+  renderer.autoClear = ac; renderer.setRenderTarget(null); renderer.render(outScene, pixCam);
+  renderer.autoClear = false; cam.layers.set(CHAR_LAYER); renderer.render(sc, cam);  // the characters, full resolution, original look
   cam.layers.mask = lm; renderer.autoClear = ac; renderer.shadowMap.autoUpdate = su; sc.background = bg;
 }
 renderer.domElement.style.imageRendering = 'pixelated';
@@ -235,6 +252,34 @@ sub("sun.shadow.mapSize.set(1024, 1024);\nObject.assign(sun.shadow.camera, { lef
     "  sun.target.position.copy(_sunC); sun.position.copy(_sunC).addScaledVector(SUN_L, 30);\n"
     "}\n")
 sub("  sun.position.set(pos.x - 6, 12, pos.z + 4); sun.target.position.copy(pos);\n", "  pixSun(pos, cdx, cdz);\n")
+
+# ------------------------------------------------------------------ 5. Inferno: calmer flame gate, no sparks rising out of the running path
+sub("    ' gl_FragColor = vec4(c * k * 1.05 * vFar, 1.0); }' });",
+    "    ' gl_FragColor = vec4(pow(min(c, vec3(1.0, 0.72, 0.32)), vec3(2.2)) * k * 0.85 * vFar, 1.0); }' });   // pixel edition: softer jet, no white-hot core")
+sub("    ' gl_FragColor = vec4(vec3(1.0, 0.36, 0.06) * k * k * 0.75 * fl * vFar, 1.0); }' });",
+    "    ' gl_FragColor = vec4(vec3(1.0, 0.11, 0.004) * k * k * 0.3 * fl * vFar, 1.0); }' });   // pixel edition: dimmer glow pool")
+sub("    ' float life = fract(uT * (0.55 + aS.y * 0.5) + aS.z + sd * 7.0); float x = (aS.x - 0.5) * ' + FL_LEN.toFixed(2) + ';\\n' +",
+    "    ' float life = fract(uT * (0.55 + aS.y * 0.5) + aS.z + sd * 7.0); float x = (aS.x < 0.5 ? -1.0 : 1.0) * (' + (HW + 0.35).toFixed(2) + ' + fract(aS.x * 2.0) * 1.4);\\n' +   // pixel edition: embers only from the nozzles, beside the path")
+sub("    ' gl_PointSize = uPx * (2.2 + aS.y * 2.5) * (1.0 - life * 0.6) / max(1.0, -mv.z) * 20.0; gl_Position = projectionMatrix * mv; }',",
+    "    ' gl_PointSize = uPx * (1.5 + aS.y * 1.7) * (1.0 - life * 0.6) / max(1.0, -mv.z) * 20.0; gl_Position = projectionMatrix * mv; }',")
+sub("    ' gl_FragColor = vec4(mix(vec3(1.0, 0.3, 0.02), vec3(1.0, 0.85, 0.4), 1.0 - r) * k, 1.0); }' });",
+    "    ' gl_FragColor = vec4(mix(vec3(1.0, 0.3, 0.02), vec3(1.0, 0.85, 0.4), 1.0 - r) * k * 0.6, 1.0); }' });")
+sub("  pts.geometry.attributes.position.needsUpdate = true;\n}",
+    "  if (rise) motesOffPath(pos, n);\n  pts.geometry.attributes.position.needsUpdate = true;\n}\n"
+    "// pixel edition: no embers rise out of the running path. Any mote over a segment's path (or a corner square) is pushed out sideways,\n"
+    "// or sunk back under the lava if that lands it on another stretch of path.\n"
+    "function motesOffPath(pos, n) {\n"
+    "  const M = HW + 1.3, _d = motesOffPath.d || (motesOffPath.d = new V3());\n"
+    "  const onPath = (x, z) => { for (const g of segments) { const dx = x - g.start.x, dz = z - g.start.z, s = dx * g.dir.x + dz * g.dir.z, l = dx * g.right.x + dz * g.right.z;\n"
+    "    if (s > -M && s < g.L + M && Math.abs(l) < M) return g; } return null; };\n"
+    "  for (let i = 0; i < n; i++) {\n"
+    "    const k = i * 3; if (pos[k + 1] < -0.5) continue;\n"
+    "    const g = onPath(pos[k], pos[k + 2]); if (!g) continue;\n"
+    "    const dx = pos[k] - g.start.x, dz = pos[k + 2] - g.start.z, l = dx * g.right.x + dz * g.right.z, push = (l < 0 ? -1 : 1) * (M + 0.5 + (i % 7) * 0.6) - l;\n"
+    "    pos[k] += g.right.x * push; pos[k + 2] += g.right.z * push;\n"
+    "    if (onPath(pos[k], pos[k + 2])) pos[k + 1] = -0.8 - (i % 5);\n"
+    "  }\n"
+    "}")
 
 if TEST:
     sub("const params = new URLSearchParams('');", "const params = new URLSearchParams(window.__UMA_TEST_PARAMS || '');")

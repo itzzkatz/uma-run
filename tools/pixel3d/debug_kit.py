@@ -153,4 +153,7 @@ PANEL_HTML = r"""<style>
 # exposes the bits the panel reads; inserted next to the game's own window.__game hook
 STATE_JS = ("renderer.info.autoReset = false;   // debug: count every pass of a frame\n"
             "window.__dbg = { biome: () => biomeAt(P.dist), water: () => !!P.inWater, hw: () => !!HWD.on, state: () => state, segs: () => segments.length,\n"
-            "  info: () => ({ calls: renderer.info.render.calls, tris: renderer.info.render.triangles, w: PIX.w, h: PIX.h, z: PIX.z }) };\n")
+            "  info: () => ({ calls: renderer.info.render.calls, tris: renderer.info.render.triangles, w: PIX.w, h: PIX.h, z: PIX.z }),\n"
+            "  embersOnPath: () => { if (!embers.visible) return null; const p = embers.userData.pos, M = HW; let n = 0, up = 0;\n"
+            "    for (let i = 0; i < p.length; i += 3) { if (p[i + 1] < -0.5) continue; up++; for (const g of segments) { const dx = p[i] - g.start.x, dz = p[i + 2] - g.start.z,\n"
+            "      s = dx * g.dir.x + dz * g.dir.z, l = dx * g.right.x + dz * g.right.z; if (s > -M && s < g.L + M && Math.abs(l) < M) { n++; break; } } } return { onPath: n, shown: up }; } };\n")
