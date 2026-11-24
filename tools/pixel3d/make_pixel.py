@@ -58,16 +58,13 @@ float spNoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 *
   float a = spHash(vec3(i, 3.0)), b = spHash(vec3(i + vec2(1.0, 0.0), 3.0)), c = spHash(vec3(i + vec2(0.0, 1.0), 3.0)), d = spHash(vec3(i + vec2(1.0, 1.0), 3.0));
   return mix(mix(a, b, f.x), mix(c, d, f.x), f.y); }
 // pick a tone from the light level k (1 = plain sunlit; the game's light gives ~0.37 in cast shadow, ~0.62 on shaded sides,
-// ~0.8 on half-lit sides, ~0.96 in full sun), dither the tone edges per splat, and sprinkle a few lighter splats
+// ~0.8 on half-lit sides, ~0.96 in full sun). No per-splat speckle: it twinkled as the camera moved.
 vec3 splatK(vec3 base, float k, vec3 w){
-  float h = spCell(w), t = k < SPLAT_K ? (k - 0.14) / 0.36 : 2.0 + (k - SPLAT_K) / 0.14;
-  t += (h - 0.5) * 0.3;
+  float t = k < SPLAT_K ? (k - 0.14) / 0.36 : 2.0 + (k - SPLAT_K) / 0.14;
 #ifdef SPLAT_BLOTCH
   float bl = spNoise(w.xz / 9.0) * 0.65 + spNoise(w.xz / 3.1) * 0.35; t -= step(0.56, bl) * 0.6 + step(0.74, bl) * 0.35;
 #endif
-  float s = clamp(floor(t), 0.0, 3.0);
-  if (h > 0.94) s = min(3.0, s + 1.0);          // a sprinkle of lighter splats (no dark ones: they read as black splotches)
-  return spTone(base, s);
+  return spTone(base, clamp(floor(t), 0.0, 3.0));
 }
 vec3 splatShade(vec3 base, vec3 lit, vec3 w){
   float lb = max(dot(base, vec3(0.2126, 0.7152, 0.0722)), 1e-4);
@@ -129,11 +126,12 @@ function pixSize() {
   const st = renderer.domElement.style; st.width = (PIX.w * PIX.z / dpr) + 'px'; st.height = (PIX.h * PIX.z / dpr) + 'px';
 }
 const _chars = [], _charMats = [];
-function charObjects() {                          // the runner (with her tube + shield) and the chasers
+function charObjects() {                          // the runner (with her tube + shield), the chasers and the pickup sparkles
   _chars.length = 0;
   const add = o => { if (o.material) _chars.push(o); };
   if (typeof hero !== 'undefined') hero.traverse(add);
   if (typeof monkeys !== 'undefined') for (const m of monkeys) m.g.traverse(add);
+  if (typeof sparks !== 'undefined') for (const k of sparks) if (k.sp.visible) _chars.push(k.sp);
   return _chars;
 }
 let _lightsTagged = false;
@@ -210,6 +208,21 @@ assert n == 6, n
 
 sub("hz = clamp(0.14 + (d - 90.0) / 420.0, 0.14, 0.72);   // v51: same aerial haze ramp as the giant",
     "hz = clamp(0.14 + (d - 90.0) / 420.0, 0.14, 0.72) * 0.5;   // v51: same aerial haze ramp as the giant (pixel edition: half, so the splat islands keep their colour)")
+
+sub("sun.shadow.mapSize.set(1024, 1024);\nObject.assign(sun.shadow.camera, { left: -9, right: 9, top: 9, bottom: -9, near: 1, far: 45 });\nsun.shadow.bias = -0.0008;\n",
+    "// pixel edition: one 88 m shadow box centred 30 m ahead of the runner and snapped to whole shadow texels, so shadows are already\n"
+    "// there long before she reaches them (no shadow edge sweeping over the path) and edges don't crawl while she runs\n"
+    "sun.shadow.mapSize.set(2048, 2048);\nObject.assign(sun.shadow.camera, { left: -44, right: 44, top: 44, bottom: -44, near: 1, far: 160 });\n"
+    "sun.shadow.bias = -0.0002; sun.shadow.normalBias = 0.03;\n"
+    "const SUN_L = new THREE.Vector3(-6, 12, 4).normalize(), SUN_F = SUN_L.clone().negate(), SUN_R = new THREE.Vector3().crossVectors(SUN_F, new THREE.Vector3(0, 1, 0)).normalize(),\n"
+    "  SUN_U = new THREE.Vector3().crossVectors(SUN_R, SUN_F), SUN_TEX = 88 / 2048, _sunC = new THREE.Vector3();\n"
+    "function pixSun(pos, dx, dz) {\n"
+    "  const l = Math.hypot(dx, dz) || 1; _sunC.set(pos.x + dx / l * 30, pos.y, pos.z + dz / l * 30);\n"
+    "  const a = Math.round(_sunC.dot(SUN_R) / SUN_TEX) * SUN_TEX, b = Math.round(_sunC.dot(SUN_U) / SUN_TEX) * SUN_TEX, c = _sunC.dot(SUN_F);\n"
+    "  _sunC.copy(SUN_R).multiplyScalar(a).addScaledVector(SUN_U, b).addScaledVector(SUN_F, c);\n"
+    "  sun.target.position.copy(_sunC); sun.position.copy(_sunC).addScaledVector(SUN_L, 70);\n"
+    "}\n")
+sub("  sun.position.set(pos.x - 6, 12, pos.z + 4); sun.target.position.copy(pos);\n", "  pixSun(pos, cdx, cdz);\n")
 
 if TEST:
     sub("const params = new URLSearchParams('');", "const params = new URLSearchParams(window.__UMA_TEST_PARAMS || '');")

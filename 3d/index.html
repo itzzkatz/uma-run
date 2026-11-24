@@ -904,7 +904,7 @@ import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';   // v52: merged jungle flora
 // ================================================================ PIXEL-SPLAT ART PASS
 // Toon materials are shaded like ink-studio pixel splats; skinned characters keep their own shading.
-const SPLAT_GLSL = "\n#ifndef SPLAT_CELL\n#define SPLAT_CELL 0.02\n#endif\n#ifndef SPLAT_K\n#define SPLAT_K 0.86\n#endif\nvec3 spHsv(vec3 c){ vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0); vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));\n  vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r)); float d = q.x - min(q.w, q.y);\n  return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + 1e-10)), d / (q.x + 1e-10), q.x); }\nvec3 spRgb(vec3 c){ vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0); vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www); return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y); }\nfloat spShift(float h, float target, float amt){ float d = fract(target - h + 1.5) - 0.5; return fract(h + clamp(d, -amt, amt) + 1.0); }\n// ink-studio style ramp: tone 0 deep shadow, 1 shadow, 2 the colour itself, 3 highlight (shadows lean blue, highlights lean warm)\nvec3 spTone(vec3 lin, float s){\n  vec3 h = spHsv(pow(max(lin, vec3(0.0)), vec3(1.0 / 2.2))); bool dark = h.z < 0.35;\n  if (s < 0.5) h = vec3(spShift(h.x, 0.62, 0.05), min(1.0, h.y * 1.12), h.z * (dark ? 0.78 : 0.6));\n  else if (s < 1.5) h = vec3(spShift(h.x, 0.62, 0.025), min(1.0, h.y * 1.08), h.z * (dark ? 0.95 : 0.74));\n  else if (s > 2.5) h = vec3(spShift(h.x, 0.14, 0.02), h.y * 0.9, min(1.0, dark ? h.z * 1.5 + 0.05 : h.z + (1.0 - h.z) * 0.3));\n  return pow(spRgb(h), vec3(2.2));\n}\nfloat spHash(vec3 p){ p = fract(p * vec3(0.1031, 0.1030, 0.0973)); p += dot(p, p.yxz + 33.33); return fract((p.x + p.y) * p.z); }\n// splat cells: a tilted lattice locked to the world; cells grow in powers of two so one is never under ~1.6 screen pixels\nfloat spCell(vec3 w){\n  float fp = max(length(dFdx(w)), length(dFdy(w)));\n  float cs = SPLAT_CELL * exp2(max(0.0, ceil(log2(fp * 1.5 / SPLAT_CELL))));\n  vec3 q = mat3(0.857, 0.286, -0.429, -0.371, 0.914, -0.171, 0.357, 0.286, 0.889) * w;\n  return spHash(floor(q / cs) + cs * 17.0);\n}\nfloat spNoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);\n  float a = spHash(vec3(i, 3.0)), b = spHash(vec3(i + vec2(1.0, 0.0), 3.0)), c = spHash(vec3(i + vec2(0.0, 1.0), 3.0)), d = spHash(vec3(i + vec2(1.0, 1.0), 3.0));\n  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y); }\n// pick a tone from the light level k (1 = plain sunlit; the game's light gives ~0.37 in cast shadow, ~0.62 on shaded sides,\n// ~0.8 on half-lit sides, ~0.96 in full sun), dither the tone edges per splat, and sprinkle a few lighter splats\nvec3 splatK(vec3 base, float k, vec3 w){\n  float h = spCell(w), t = k < SPLAT_K ? (k - 0.14) / 0.36 : 2.0 + (k - SPLAT_K) / 0.14;\n  t += (h - 0.5) * 0.3;\n#ifdef SPLAT_BLOTCH\n  float bl = spNoise(w.xz / 9.0) * 0.65 + spNoise(w.xz / 3.1) * 0.35; t -= step(0.56, bl) * 0.6 + step(0.74, bl) * 0.35;\n#endif\n  float s = clamp(floor(t), 0.0, 3.0);\n  if (h > 0.94) s = min(3.0, s + 1.0);          // a sprinkle of lighter splats (no dark ones: they read as black splotches)\n  return spTone(base, s);\n}\nvec3 splatShade(vec3 base, vec3 lit, vec3 w){\n  float lb = max(dot(base, vec3(0.2126, 0.7152, 0.0722)), 1e-4);\n  return splatK(base, dot(lit, vec3(0.2126, 0.7152, 0.0722)) / lb, w);\n}\n";
+const SPLAT_GLSL = "\n#ifndef SPLAT_CELL\n#define SPLAT_CELL 0.02\n#endif\n#ifndef SPLAT_K\n#define SPLAT_K 0.86\n#endif\nvec3 spHsv(vec3 c){ vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0); vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));\n  vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r)); float d = q.x - min(q.w, q.y);\n  return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + 1e-10)), d / (q.x + 1e-10), q.x); }\nvec3 spRgb(vec3 c){ vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0); vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www); return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y); }\nfloat spShift(float h, float target, float amt){ float d = fract(target - h + 1.5) - 0.5; return fract(h + clamp(d, -amt, amt) + 1.0); }\n// ink-studio style ramp: tone 0 deep shadow, 1 shadow, 2 the colour itself, 3 highlight (shadows lean blue, highlights lean warm)\nvec3 spTone(vec3 lin, float s){\n  vec3 h = spHsv(pow(max(lin, vec3(0.0)), vec3(1.0 / 2.2))); bool dark = h.z < 0.35;\n  if (s < 0.5) h = vec3(spShift(h.x, 0.62, 0.05), min(1.0, h.y * 1.12), h.z * (dark ? 0.78 : 0.6));\n  else if (s < 1.5) h = vec3(spShift(h.x, 0.62, 0.025), min(1.0, h.y * 1.08), h.z * (dark ? 0.95 : 0.74));\n  else if (s > 2.5) h = vec3(spShift(h.x, 0.14, 0.02), h.y * 0.9, min(1.0, dark ? h.z * 1.5 + 0.05 : h.z + (1.0 - h.z) * 0.3));\n  return pow(spRgb(h), vec3(2.2));\n}\nfloat spHash(vec3 p){ p = fract(p * vec3(0.1031, 0.1030, 0.0973)); p += dot(p, p.yxz + 33.33); return fract((p.x + p.y) * p.z); }\n// splat cells: a tilted lattice locked to the world; cells grow in powers of two so one is never under ~1.6 screen pixels\nfloat spCell(vec3 w){\n  float fp = max(length(dFdx(w)), length(dFdy(w)));\n  float cs = SPLAT_CELL * exp2(max(0.0, ceil(log2(fp * 1.5 / SPLAT_CELL))));\n  vec3 q = mat3(0.857, 0.286, -0.429, -0.371, 0.914, -0.171, 0.357, 0.286, 0.889) * w;\n  return spHash(floor(q / cs) + cs * 17.0);\n}\nfloat spNoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);\n  float a = spHash(vec3(i, 3.0)), b = spHash(vec3(i + vec2(1.0, 0.0), 3.0)), c = spHash(vec3(i + vec2(0.0, 1.0), 3.0)), d = spHash(vec3(i + vec2(1.0, 1.0), 3.0));\n  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y); }\n// pick a tone from the light level k (1 = plain sunlit; the game's light gives ~0.37 in cast shadow, ~0.62 on shaded sides,\n// ~0.8 on half-lit sides, ~0.96 in full sun). No per-splat speckle: it twinkled as the camera moved.\nvec3 splatK(vec3 base, float k, vec3 w){\n  float t = k < SPLAT_K ? (k - 0.14) / 0.36 : 2.0 + (k - SPLAT_K) / 0.14;\n#ifdef SPLAT_BLOTCH\n  float bl = spNoise(w.xz / 9.0) * 0.65 + spNoise(w.xz / 3.1) * 0.35; t -= step(0.56, bl) * 0.6 + step(0.74, bl) * 0.35;\n#endif\n  return spTone(base, clamp(floor(t), 0.0, 3.0));\n}\nvec3 splatShade(vec3 base, vec3 lit, vec3 w){\n  float lb = max(dot(base, vec3(0.2126, 0.7152, 0.0722)), 1e-4);\n  return splatK(base, dot(lit, vec3(0.2126, 0.7152, 0.0722)) / lb, w);\n}\n";
 { const L = THREE.ShaderLib.toon;
   L.vertexShader = L.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vSplatW;')
     .replace('#include <project_vertex>', '#include <project_vertex>\n\tvSplatW = (mvPosition.xyz - viewMatrix[3].xyz) * mat3(viewMatrix);');
@@ -960,11 +960,12 @@ function pixSize() {
   const st = renderer.domElement.style; st.width = (PIX.w * PIX.z / dpr) + 'px'; st.height = (PIX.h * PIX.z / dpr) + 'px';
 }
 const _chars = [], _charMats = [];
-function charObjects() {                          // the runner (with her tube + shield) and the chasers
+function charObjects() {                          // the runner (with her tube + shield), the chasers and the pickup sparkles
   _chars.length = 0;
   const add = o => { if (o.material) _chars.push(o); };
   if (typeof hero !== 'undefined') hero.traverse(add);
   if (typeof monkeys !== 'undefined') for (const m of monkeys) m.g.traverse(add);
+  if (typeof sparks !== 'undefined') for (const k of sparks) if (k.sp.visible) _chars.push(k.sp);
   return _chars;
 }
 let _lightsTagged = false;
@@ -1032,9 +1033,19 @@ const cloudMats = [];                                 // v32: recoloured to ash 
 const hemi = new THREE.HemisphereLight(0xdff0ff, 0x9ccc60, 1.35); scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff3dc, 2.0);
 sun.castShadow = true;
-sun.shadow.mapSize.set(1024, 1024);
-Object.assign(sun.shadow.camera, { left: -9, right: 9, top: 9, bottom: -9, near: 1, far: 45 });
-sun.shadow.bias = -0.0008;
+// pixel edition: one 88 m shadow box centred 30 m ahead of the runner and snapped to whole shadow texels, so shadows are already
+// there long before she reaches them (no shadow edge sweeping over the path) and edges don't crawl while she runs
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -44, right: 44, top: 44, bottom: -44, near: 1, far: 160 });
+sun.shadow.bias = -0.0002; sun.shadow.normalBias = 0.03;
+const SUN_L = new THREE.Vector3(-6, 12, 4).normalize(), SUN_F = SUN_L.clone().negate(), SUN_R = new THREE.Vector3().crossVectors(SUN_F, new THREE.Vector3(0, 1, 0)).normalize(),
+  SUN_U = new THREE.Vector3().crossVectors(SUN_R, SUN_F), SUN_TEX = 88 / 2048, _sunC = new THREE.Vector3();
+function pixSun(pos, dx, dz) {
+  const l = Math.hypot(dx, dz) || 1; _sunC.set(pos.x + dx / l * 30, pos.y, pos.z + dz / l * 30);
+  const a = Math.round(_sunC.dot(SUN_R) / SUN_TEX) * SUN_TEX, b = Math.round(_sunC.dot(SUN_U) / SUN_TEX) * SUN_TEX, c = _sunC.dot(SUN_F);
+  _sunC.copy(SUN_R).multiplyScalar(a).addScaledVector(SUN_U, b).addScaledVector(SUN_F, c);
+  sun.target.position.copy(_sunC); sun.position.copy(_sunC).addScaledVector(SUN_L, 70);
+}
 scene.add(sun, sun.target);
 
 addEventListener('resize', () => {
@@ -5291,7 +5302,7 @@ function update(dt) {
   camera.lookAt(lookAt);
   camera.fov = lerp(50 + narrow * 14, lerp(66, 84, sf), b) * (1 + narrow * 0.22 * b) + shakeKick * 6;
   camera.updateProjectionMatrix();
-  sun.position.set(pos.x - 6, 12, pos.z + 4); sun.target.position.copy(pos);
+  pixSun(pos, cdx, cdz);
   skyG.position.copy(camera.position); ground.position.set(pos.x, -12, pos.z);
   updateFloaters(dt, camera.position);
   hellUpdate(dt);                                                // v32: Mambo's Inferno (sky fade, lava, embers, jets, giant Mambo)
