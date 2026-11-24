@@ -59,6 +59,7 @@ canvas{position:fixed;inset:0;width:100%;height:100%;image-rendering:pixelated;d
 .err{position:fixed;left:8px;bottom:8px;right:8px;color:#fff;background:#a01830;padding:8px;border-radius:8px;font:13px system-ui;display:none}
 @media(prefers-reduced-motion:reduce){.turn.on{animation:none}}
 </style>
+<link rel="icon" href="data:,">
 </head>
 <body>
 <canvas id="cv"></canvas>
@@ -78,7 +79,7 @@ canvas{position:fixed;inset:0;width:100%;height:100%;image-rendering:pixelated;d
 <div class="screen" id="start">
   <div class="card">
     <h1>Uma Run</h1>
-    <p class="tag">Temple of Mambo, sprite mode</p>
+    <p class="tag">Temple of Mambo, sprite mode with pixel-splat scenery</p>
     <button class="go" id="goBtn">Run!</button>
     <div class="keys">
       <div><b>← →</b> lanes, turns</div><div><b>Swipe</b> lanes, turns</div>
@@ -138,9 +139,32 @@ function biomeNext(d){ biomeExt(d); for (const b of biomeB) if (b > d) return b;
 let SPR = {};
 const cache = new Map(), STEPS = 128;
 function hexRgb(c){ const n = parseInt(c.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; }
-function frame(key, ang){
-  const k = ((Math.round(ang / (Math.PI * 2) * STEPS) % STEPS) + STEPS) % STEPS, id = key + '|' + k;
+// scenery: pixel-splat view atlases (ink-studio), one pre-rendered view every 360/directions degrees; pick the nearest view
+let SPL = {};
+const SPLAT_OFF = HASH.includes('stacks');          // #stacks draws the old sprite stacks, where their strips are loaded
+function splatFrame(key, ang){
+  const m = SPL[key], D = m.directions, d = ((Math.round(ang / (Math.PI * 2) * D) % D) + D) % D, id = key + '#' + d;
   let f = cache.get(id); if (f) return f;
+  const tw = m.tileW, th = m.tileH, cw = tw + 2, ch = th + 2;
+  const body = document.createElement('canvas'); body.width = cw; body.height = ch;
+  const g = body.getContext('2d'); g.imageSmoothingEnabled = false;
+  g.drawImage(m.img, d * tw, 0, tw, th, 1, 1, tw, th);
+  const dd = g.getImageData(0, 0, cw, ch), p = dd.data, ol = m.ol, sol = new Uint8Array(cw * ch);
+  for (let i = 0; i < cw * ch; i++) { if (p[i * 4 + 3] > 127) { sol[i] = 1; p[i * 4 + 3] = 255; } else p[i * 4 + 3] = 0; }
+  for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) { const i = y * cw + x; if (sol[i]) continue;
+    if ((x > 0 && sol[i - 1]) || (x < cw - 1 && sol[i + 1]) || (y > 0 && sol[i - cw]) || (y < ch - 1 && sol[i + cw])) { p[i * 4] = ol[0]; p[i * 4 + 1] = ol[1]; p[i * 4 + 2] = ol[2]; p[i * 4 + 3] = 255; } }
+  g.putImageData(dd, 0, 0);
+  const ox = Math.round(m.ax) + 1, base = Math.round(m.ay) + 1;
+  // shadow: the silhouette laid down on the ground towards the lower right, as if lit from the upper left
+  const sh = document.createElement('canvas'); sh.width = cw + Math.ceil(th * .45); sh.height = ch; const s = sh.getContext('2d'); s.imageSmoothingEnabled = false;
+  s.setTransform(1, 0, -0.45, 0.3, ox * 0 + 1 + base * 0.45, base * 0.7 + 1); s.drawImage(body, 0, 0);
+  s.setTransform(1, 0, 0, 1, 0, 0); s.globalCompositeOperation = 'source-in'; s.fillStyle = 'rgba(10,20,30,.3)'; s.fillRect(0, 0, sh.width, ch);
+  f = {body, sh, ox, base}; if (cache.size > 6000) cache.clear(); cache.set(id, f); return f;
+}
+function frame(key, ang, stack){
+  if (SPL[key] && !((SPLAT_OFF || stack) && SPR[key])) return splatFrame(key, ang);
+  const k = ((Math.round(ang / (Math.PI * 2) * STEPS) % STEPS) + STEPS) % STEPS, id = key + '|' + k;
+  let f = !stack && cache.get(id); if (f) return f;
   const m = SPR[key], img = m.img, w = m.sliceWidth, h = m.sliceHeight, n = m.slices, a = k / STEPS * Math.PI * 2;
   const diag = Math.ceil(Math.hypot(w, h)) + 2, cw = diag + 6, ch = Math.ceil(diag * SQ) + n + 6, ox = cw >> 1, base = ch - 3 - Math.ceil(diag * SQ / 2);
   const body = document.createElement('canvas'); body.width = cw; body.height = ch;
@@ -611,9 +635,11 @@ function loop(now){
   render(); hud();
   requestAnimationFrame(loop);
 }
+window.__frames = (key, ang) => [frame(key, ang, true).body.toDataURL(), SPL[key] ? splatFrame(key, ang).body.toDataURL() : null];
 window.__uma = () => ({state, dist: P && Math.floor(P.dist - START_D), coins: P && P.coins, biome: P && P.seg.biome, death: P && P.death, cause: P && P.cause, segs: segments.length});
-fetch('manifest.json').then(r => r.json()).then(async list => {
-  await Promise.all(list.map(m => new Promise((ok, no) => { const i = new Image(); i.onload = () => { SPR[m.key] = {...m, img: i, ol: hexRgb(m.outline)}; ok(); }; i.onerror = () => no(new Error('missing ' + m.file)); i.src = m.file; })));
+const loadImg = (m, into) => new Promise((ok, no) => { const i = new Image(); i.onload = () => { into[m.key] = {...m, img: i, ol: hexRgb(m.outline)}; ok(); }; i.onerror = () => no(new Error('missing ' + m.file)); i.src = m.file; });
+Promise.all([fetch('manifest.json').then(r => r.json()), fetch('splats.json').then(r => r.json())]).then(async ([list, splats]) => {
+  await Promise.all([...list.map(m => loadImg(m, SPR)), ...splats.map(m => loadImg(m, SPL))]);
   resize(); resetRun(); showBest();
   if (AUTO) startGame();
   requestAnimationFrame(loop);
