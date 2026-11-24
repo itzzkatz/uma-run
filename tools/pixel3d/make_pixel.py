@@ -137,6 +137,8 @@ function charObjects() {                          // the runner (with her tube +
 let _lightsTagged = false;
 function pixRender(sc, cam) {
   if (!_lightsTagged) { sc.traverse(o => { if (o.isLight) o.layers.enable(CHAR_LAYER); }); _lightsTagged = true; }
+  // the track, obstacles and scenery never cast shadows (re-checked whenever a segment gains or loses pieces)
+  if (typeof segments !== 'undefined') for (const g of segments) { const gr = g.group; if (gr && gr.userData.pixShadowN !== gr.children.length) { gr.userData.pixShadowN = gr.children.length; gr.traverse(o => { o.castShadow = false; }); } }
   pixU.uNF.value.set(cam.near, cam.far); if (sc.fog) pixU.uFog.value.set(sc.fog.near, sc.fog.far);
   const ch = charObjects(); _charMats.length = 0;                                  // (chasers share materials: save each one once)
   for (const o of ch) { o.layers.enable(CHAR_LAYER); for (const m of Array.isArray(o.material) ? o.material : [o.material]) { if (m.userData.pixHid) continue; m.userData.pixHid = true; _charMats.push(m, m.colorWrite, m.depthWrite); m.colorWrite = false; m.depthWrite = false; } }
@@ -210,17 +212,17 @@ sub("hz = clamp(0.14 + (d - 90.0) / 420.0, 0.14, 0.72);   // v51: same aerial ha
     "hz = clamp(0.14 + (d - 90.0) / 420.0, 0.14, 0.72) * 0.5;   // v51: same aerial haze ramp as the giant (pixel edition: half, so the splat islands keep their colour)")
 
 sub("sun.shadow.mapSize.set(1024, 1024);\nObject.assign(sun.shadow.camera, { left: -9, right: 9, top: 9, bottom: -9, near: 1, far: 45 });\nsun.shadow.bias = -0.0008;\n",
-    "// pixel edition: one 88 m shadow box centred 30 m ahead of the runner and snapped to whole shadow texels, so shadows are already\n"
-    "// there long before she reaches them (no shadow edge sweeping over the path) and edges don't crawl while she runs\n"
-    "sun.shadow.mapSize.set(2048, 2048);\nObject.assign(sun.shadow.camera, { left: -44, right: 44, top: 44, bottom: -44, near: 1, far: 160 });\n"
-    "sun.shadow.bias = -0.0002; sun.shadow.normalBias = 0.03;\n"
+    "// pixel edition: only the runner and the chasers cast shadows (see pixRender), so no shadow ever rolls over the running path.\n"
+    "// Their shadow box stays on her and snaps to whole shadow texels so the edges don't crawl.\n"
+    "sun.shadow.mapSize.set(2048, 2048);\nObject.assign(sun.shadow.camera, { left: -12, right: 12, top: 12, bottom: -12, near: 1, far: 60 });\n"
+    "sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.02;\n"
     "const SUN_L = new THREE.Vector3(-6, 12, 4).normalize(), SUN_F = SUN_L.clone().negate(), SUN_R = new THREE.Vector3().crossVectors(SUN_F, new THREE.Vector3(0, 1, 0)).normalize(),\n"
-    "  SUN_U = new THREE.Vector3().crossVectors(SUN_R, SUN_F), SUN_TEX = 88 / 2048, _sunC = new THREE.Vector3();\n"
+    "  SUN_U = new THREE.Vector3().crossVectors(SUN_R, SUN_F), SUN_TEX = 24 / 2048, _sunC = new THREE.Vector3();\n"
     "function pixSun(pos, dx, dz) {\n"
-    "  const l = Math.hypot(dx, dz) || 1; _sunC.set(pos.x + dx / l * 30, pos.y, pos.z + dz / l * 30);\n"
+    "  const l = Math.hypot(dx, dz) || 1; _sunC.set(pos.x - dx / l * 3, pos.y, pos.z - dz / l * 3);   // centred a little behind her, over the chasers\n"
     "  const a = Math.round(_sunC.dot(SUN_R) / SUN_TEX) * SUN_TEX, b = Math.round(_sunC.dot(SUN_U) / SUN_TEX) * SUN_TEX, c = _sunC.dot(SUN_F);\n"
     "  _sunC.copy(SUN_R).multiplyScalar(a).addScaledVector(SUN_U, b).addScaledVector(SUN_F, c);\n"
-    "  sun.target.position.copy(_sunC); sun.position.copy(_sunC).addScaledVector(SUN_L, 70);\n"
+    "  sun.target.position.copy(_sunC); sun.position.copy(_sunC).addScaledVector(SUN_L, 30);\n"
     "}\n")
 sub("  sun.position.set(pos.x - 6, 12, pos.z + 4); sun.target.position.copy(pos);\n", "  pixSun(pos, cdx, cdz);\n")
 
