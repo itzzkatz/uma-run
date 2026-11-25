@@ -15,7 +15,9 @@ game ──> Worker /me (balance + paid umas to restore)   game ──> Worker /
 
 - Worker: `https://uma-run-shop.itzzkatz.workers.dev` (check it at `/health`)
 - D1 database: `uma-run-shop` (id `4835945b-24a9-4b5c-8906-894da6dd6bbe`), bound as `DB`
-- Xsolla project 320064: item `uma_capsule` ($1.99), webhooks to `/xsolla/webhook`
+- Xsolla project 320064: item `uma_capsule` ($1.99), webhooks to `https://umarun.space/xsolla/webhook`.
+  A Workers route `umarun.space/xsolla/*` sends that path of the website to this Worker; the rest of umarun.space
+  stays on the `uma-run` site Worker. `https://uma-run-shop.itzzkatz.workers.dev/xsolla/webhook` still works too.
 - Secrets `XSOLLA_API_KEY` and `XSOLLA_WEBHOOK_SECRET` are set on the Worker. The plain-text settings below are built
   into `src/index.js` as defaults, so no variables are needed; add one with the same name to override it
   (for example `SANDBOX` = `false` once Xsolla approves real payments).
