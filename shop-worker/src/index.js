@@ -4,6 +4,7 @@
 //   POST /buy                (signed in) -> { url, orderId, sandbox }                           Xsolla payment window for one Uma Capsule
 //   POST /open  { uma }      (signed in) -> { ok, capsules, umas }                              spend one paid capsule on an uma
 //   POST /xsolla/webhook     (Xsolla)    -> user_validation, order_paid, order_canceled         signed with the webhook secret
+//   GET  /capsule/           (anyone)    -> the game with the capsule shop (umarun.space/capsule/ through a Workers route)
 //
 // "Signed in" means an `Authorization: Bearer <Firebase ID token>` header from the game's existing Firebase accounts.
 // Capsules are only ever credited by a signed order_paid webhook, once per Xsolla order.
@@ -26,7 +27,10 @@ const DEFAULTS = {
   PRICE_LABEL: '$1.99',
   SANDBOX: 'true',
   ALLOWED_ORIGINS: '*',
+  CAPSULE_PAGE_URL: 'https://itzzkatz.github.io/uma-run/capsule/index.html',   // the buy-capsule game, published on GitHub Pages
+  SITE_ORIGIN: 'https://umarun.space',                                         // icons, manifest and offline worker come from the main site
 };
+const SITE_FILES = new Set(['favicon.png', 'icon-180.png', 'manifest.webmanifest', 'sw.js']);
 const withDefaults = env => new Proxy(env || {}, { get: (t, k) => (t[k] !== undefined && t[k] !== '' ? t[k] : DEFAULTS[k]) });
 
 export default {
@@ -36,6 +40,7 @@ export default {
     const cors = corsHeaders(request, env);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
     try {
+      if (url.pathname === '/capsule' || url.pathname.startsWith('/capsule/')) return await capsulePage(request, url, env);
       if (url.pathname === '/xsolla/webhook' && request.method === 'POST') return await webhook(request, env);
       if (url.pathname === '/me' && request.method === 'GET') return json(await me(await player(request, env), env), 200, cors);
       if (url.pathname === '/buy' && request.method === 'POST') return json(await buy(request, await player(request, env), env), 200, cors);
@@ -63,6 +68,24 @@ function corsHeaders(request, env) {
   const h = { 'access-control-allow-methods': 'GET, POST, OPTIONS', 'access-control-allow-headers': 'authorization, content-type', 'access-control-max-age': '86400', vary: 'origin' };
   if (ok) h['access-control-allow-origin'] = ok;
   return h;
+}
+
+// ------------------------------------------------------------------ /capsule/: the buy-capsule version of the game on the player's own domain
+async function capsulePage(request, url, env) {
+  if (request.method !== 'GET' && request.method !== 'HEAD') return new Response('Method not allowed', { status: 405, headers: { allow: 'GET, HEAD' } });
+  if (url.pathname === '/capsule') return Response.redirect(url.origin + '/capsule/' + url.search, 301);
+  const rest = url.pathname.slice('/capsule/'.length);
+  if (rest === '' || rest === 'index.html') {
+    const r = await fetch(env.CAPSULE_PAGE_URL, { cf: { cacheTtl: 300, cacheEverything: true } });
+    if (!r.ok) return new Response('The capsule shop page is not available right now. Try again in a minute.', { status: 502, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+    return new Response(request.method === 'HEAD' ? null : r.body, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=60' } });
+  }
+  if (SITE_FILES.has(rest)) {
+    const r = await fetch(String(env.SITE_ORIGIN).replace(/\/+$/, '') + '/' + rest);
+    const h = new Headers(r.headers); h.delete('set-cookie');
+    return new Response(request.method === 'HEAD' ? null : r.body, { status: r.status, headers: h });
+  }
+  return new Response('Not found', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
 }
 
 // ------------------------------------------------------------------ Firebase ID token check (RS256, Google's public keys)

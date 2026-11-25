@@ -21,6 +21,9 @@ game ──> Worker /me (balance + paid umas to restore)   game ──> Worker /
 - Secrets `XSOLLA_API_KEY` and `XSOLLA_WEBHOOK_SECRET` are set on the Worker. The plain-text settings below are built
   into `src/index.js` as defaults, so no variables are needed; add one with the same name to override it
   (for example `SANDBOX` = `false` once Xsolla approves real payments).
+- `https://umarun.space/capsule/` is the buy-capsule version of the game. A Workers route `umarun.space/capsule*`
+  sends it to this Worker, which serves `capsule/index.html` from GitHub Pages (cached 5 minutes) and takes the icons,
+  manifest and offline worker from the main site. The main game at `https://umarun.space/` is unchanged.
 - Two placeholder players, `webhook-test-user` and `xsolla-test-2`, exist so Xsolla's webhook tester can pass its
   "valid user" check. They hold no capsules.
 

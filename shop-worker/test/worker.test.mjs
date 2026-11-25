@@ -45,6 +45,8 @@ globalThis.fetch = async (url, init = {}) => {
     if (init.headers.authorization !== 'Basic ' + btoa('320064:' + API_KEY)) return new Response(JSON.stringify({ statusCode: 401 }), { status: 401 });
     return new Response(JSON.stringify({ token: 'tok_' + nextOrder, order_id: nextOrder++ }), { status: 201 });
   }
+  if (url === 'https://itzzkatz.github.io/uma-run/capsule/index.html') return new Response('<!doctype html><title>Uma Run: Temple of Mambo</title>UMA_SHOP', { headers: { 'content-type': 'text/html', 'set-cookie': 'x=1' } });
+  if (url === 'https://umarun.space/sw.js') return new Response('self.addEventListener("fetch",()=>{})', { headers: { 'content-type': 'text/javascript', 'set-cookie': 'x=1' } });
   throw new Error('unexpected fetch ' + url);
 };
 
@@ -143,5 +145,12 @@ await ok('live mode uses the real payment window', async () => {
 await ok('shop not configured: buy says so instead of failing oddly', async () => {
   const k = env.XSOLLA_API_KEY; delete env.XSOLLA_API_KEY; const r = await call('/buy', { method: 'POST', token: A }); env.XSOLLA_API_KEY = k;
   assert.equal(r.status, 503); assert.equal((await r.json()).error, 'not_configured');
+});
+await ok('/capsule/ serves the buy-capsule game, site files come from the main site', async () => {
+  const r0 = await call('/capsule'); assert.equal(r0.status, 301); assert.equal(r0.headers.get('location'), 'https://shop.test/capsule/');
+  const r = await call('/capsule/'); assert.equal(r.status, 200); assert.match(r.headers.get('content-type'), /text\/html/); assert.match(await r.text(), /UMA_SHOP/);
+  const sw = await call('/capsule/sw.js'); assert.equal(sw.status, 200); assert.match(sw.headers.get('content-type'), /javascript/); assert.equal(sw.headers.get('set-cookie'), null);
+  assert.equal((await call('/capsule/secret.txt')).status, 404);
+  assert.equal((await call('/capsule/', { method: 'POST', raw: '{}' })).status, 405);
 });
 console.log(`\n${passed} tests passed`);
