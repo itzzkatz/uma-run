@@ -46,7 +46,8 @@ globalThis.fetch = async (url, init = {}) => {
     return new Response(JSON.stringify({ token: 'tok_' + nextOrder, order_id: nextOrder++ }), { status: 201 });
   }
   if (url === 'https://itzzkatz.github.io/uma-run/capsule/index.html') return new Response('<!doctype html><title>Uma Run: Temple of Mambo</title>UMA_SHOP', { headers: { 'content-type': 'text/html', 'set-cookie': 'x=1' } });
-  if (url === 'https://umarun.space/sw.js') return new Response('self.addEventListener("fetch",()=>{})', { headers: { 'content-type': 'text/javascript', 'set-cookie': 'x=1' } });
+  if (url === 'https://umarun.space/vendor/three.module.js') return new Response('export const REVISION = "170";', { headers: { 'content-type': 'text/javascript', 'set-cookie': 'x=1' } });
+  if (url === 'https://umarun.space/icon-512.png') return new Response('not found', { status: 404 });
   throw new Error('unexpected fetch ' + url);
 };
 
@@ -149,8 +150,12 @@ await ok('shop not configured: buy says so instead of failing oddly', async () =
 await ok('/capsule/ serves the buy-capsule game, site files come from the main site', async () => {
   const r0 = await call('/capsule'); assert.equal(r0.status, 301); assert.equal(r0.headers.get('location'), 'https://shop.test/capsule/');
   const r = await call('/capsule/'); assert.equal(r.status, 200); assert.match(r.headers.get('content-type'), /text\/html/); assert.match(await r.text(), /UMA_SHOP/);
-  const sw = await call('/capsule/sw.js'); assert.equal(sw.status, 200); assert.match(sw.headers.get('content-type'), /javascript/); assert.equal(sw.headers.get('set-cookie'), null);
-  assert.equal((await call('/capsule/secret.txt')).status, 404);
+  const sw = await call('/capsule/sw.js'); assert.equal(sw.status, 200); assert.match(sw.headers.get('content-type'), /javascript/);
+  const swText = await sw.text(); assert.match(swText, /uma-run-capsule-v1/); assert.match(swText, /k\.startsWith\('uma-run-capsule-'\)/);   // never deletes the main game's cache
+  const mod = await call('/capsule/vendor/three.module.js'); assert.equal(mod.status, 200); assert.match(await mod.text(), /REVISION/); assert.equal(mod.headers.get('set-cookie'), null);
+  assert.equal((await call('/capsule/icon-512.png')).status, 404);
+  assert.equal((await call('/capsule/xsolla/webhook')).status, 404);
+  assert.equal((await call('/capsule/capsule/')).status, 404);
   assert.equal((await call('/capsule/', { method: 'POST', raw: '{}' })).status, 405);
 });
 console.log(`\n${passed} tests passed`);

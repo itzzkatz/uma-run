@@ -22,8 +22,12 @@ game ──> Worker /me (balance + paid umas to restore)   game ──> Worker /
   into `src/index.js` as defaults, so no variables are needed; add one with the same name to override it
   (for example `SANDBOX` = `false` once Xsolla approves real payments).
 - `https://umarun.space/capsule/` is the buy-capsule version of the game. A Workers route `umarun.space/capsule*`
-  sends it to this Worker, which serves `capsule/index.html` from GitHub Pages (cached 5 minutes) and takes the icons,
-  manifest and offline worker from the main site. The main game at `https://umarun.space/` is unchanged.
+  sends it to this Worker, which serves `capsule/index.html` from GitHub Pages (cached 5 minutes). Everything else the
+  page loads (`vendor/` three.js modules, icons, manifest) is the main site's own copy. `/capsule/sw.js` is a separate
+  offline worker with its own cache (`uma-run-capsule-v1`), so it never clears the main game's cache. The main game at
+  `https://umarun.space/` is unchanged. One quirk: on a player's very first visit to `/capsule/`, the main site's sw.js
+  (which handles that first page load) files it as its offline copy of `/`; the next online visit to the main game puts
+  the main page back. Only the offline fallback is affected.
 - Two placeholder players, `webhook-test-user` and `xsolla-test-2`, exist so Xsolla's webhook tester can pass its
   "valid user" check. They hold no capsules.
 

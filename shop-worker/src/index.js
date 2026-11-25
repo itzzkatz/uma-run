@@ -30,7 +30,19 @@ const DEFAULTS = {
   CAPSULE_PAGE_URL: 'https://itzzkatz.github.io/uma-run/capsule/index.html',   // the buy-capsule game, published on GitHub Pages
   SITE_ORIGIN: 'https://umarun.space',                                         // icons, manifest and offline worker come from the main site
 };
-const SITE_FILES = new Set(['favicon.png', 'icon-180.png', 'manifest.webmanifest', 'sw.js']);
+// Offline worker for /capsule/: same approach as the main site's sw.js, but with its own cache so the two never touch each other.
+const CAPSULE_SW = `// Uma Run buy-capsule version (umarun.space/capsule/): offline cache, kept apart from the main game's cache.
+const CACHE = 'uma-run-capsule-v1';
+const ASSETS = ['./', 'manifest.webmanifest', 'favicon.png', 'icon-180.png', 'vendor/three.module.js', 'vendor/addons/loaders/GLTFLoader.js',
+  'vendor/addons/libs/meshopt_decoder.module.js', 'vendor/addons/utils/SkeletonUtils.js', 'vendor/addons/utils/BufferGeometryUtils.js'];
+self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting())); });
+self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k.startsWith('uma-run-capsule-') && k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
+self.addEventListener('fetch', e => {
+  const req = e.request, u = new URL(req.url); if (req.method !== 'GET' || u.origin !== location.origin) return;
+  if (req.mode === 'navigate') { e.respondWith(fetch(req).then(r => { const c = r.clone(); caches.open(CACHE).then(x => x.put('./', c)); return r; }).catch(() => caches.open(CACHE).then(x => x.match('./')))); return; }
+  e.respondWith(caches.open(CACHE).then(x => x.match(req)).then(r => r || fetch(req).then(n => { if (n.ok) { const c = n.clone(); caches.open(CACHE).then(x => x.put(req, c)); } return n; })));
+});
+`;
 const withDefaults = env => new Proxy(env || {}, { get: (t, k) => (t[k] !== undefined && t[k] !== '' ? t[k] : DEFAULTS[k]) });
 
 export default {
@@ -80,8 +92,10 @@ async function capsulePage(request, url, env) {
     if (!r.ok) return new Response('The capsule shop page is not available right now. Try again in a minute.', { status: 502, headers: { 'content-type': 'text/plain; charset=utf-8' } });
     return new Response(request.method === 'HEAD' ? null : r.body, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=60' } });
   }
-  if (SITE_FILES.has(rest)) {
-    const r = await fetch(String(env.SITE_ORIGIN).replace(/\/+$/, '') + '/' + rest);
+  if (rest === 'sw.js') return new Response(request.method === 'HEAD' ? null : CAPSULE_SW, { headers: { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-cache' } });
+  // everything else the page loads (vendor/ modules, icons, manifest) is the main site's own copy
+  if (/^[A-Za-z0-9][A-Za-z0-9._\-\/]*$/.test(rest) && !rest.includes('..') && !/^(capsule|xsolla)(\/|$)/.test(rest)) {
+    const r = await fetch(String(env.SITE_ORIGIN).replace(/\/+$/, '') + '/' + rest, { cf: { cacheTtl: 3600 } });
     const h = new Headers(r.headers); h.delete('set-cookie');
     return new Response(request.method === 'HEAD' ? null : r.body, { status: r.status, headers: h });
   }
