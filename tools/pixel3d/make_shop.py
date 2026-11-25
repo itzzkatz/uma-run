@@ -3,7 +3,7 @@
 Usage: python3 make_shop.py <uma-run.html> <out.html> [--api https://uma-run-shop.<you>.workers.dev] [--test]
 
 What it adds, all inside the existing capsule machine (Characters tab):
-  - BUY CAPSULE · $1.99: needs a signed-in account (so the purchase is saved), opens Xsolla's payment window
+  - BUY CAPSULE · $1.99: needs a signed-in account (so the purchase is saved), opens Xsolla's payment page in a new tab
   - OPEN PAID CAPSULE ×N: spends a paid capsule (checked by the server) on a random uma you don't own, same reveal as a carrot pull
   - paid umas are restored on any device when the player signs in
   - hidden entirely while window.UMA_SHOP.api is empty, or once the collection is complete
@@ -97,21 +97,22 @@ function renderShop() {
 async function shopBuy() {
   if (SHOP.busy || !shopApi()) return;
   if (!shopSignedIn()) { openAcct('up'); acctMsg('Create an account or sign in first, so the capsules you buy are saved to it.', 'info'); return; }
-  // open the payment window right away (inside the tap) so pop-up blockers allow it, then point it at Xsolla
-  const w = window.__UMA_SHOP_TEST ? null : window.open('', 'umaPay', 'width=760,height=800');
-  SHOP.busy = true; renderShop(); shopNote('Opening the payment window…');
+  // open the payment tab right away (inside the tap) so pop-up blockers allow it, then point it at Xsolla.
+  // No size given, so browsers open a normal tab in this window instead of a separate pop-up window.
+  const w = window.__UMA_SHOP_TEST ? null : window.open('', 'umaPay');
+  SHOP.busy = true; renderShop(); shopNote('Opening the payment tab…');
   try {
     const { url } = await shopCall('/buy', {});
     if (window.__UMA_SHOP_TEST) window.__UMA_SHOP_TEST.opened = url;
     else if (w && !w.closed) w.location.href = url; else window.location.href = url;
-    shopNote('Finish paying in the payment window. Your capsule appears here as soon as Xsolla confirms it.');
+    shopNote('Finish paying in the new tab, then come back to this one. Your capsule appears here as soon as Xsolla confirms it.');
     shopWatch(w);
   } catch (e) {
     if (w && !w.closed) w.close();
     shopNote(e.code === 'signed_out' || e.status === 401 ? 'Please sign in again, then retry.' : e.code === 'not_configured' ? 'The shop is not set up yet.' : 'Could not reach the shop. Try again in a moment.', 'bad');
   } finally { SHOP.busy = false; renderShop(); }
 }
-function shopWatch(w) {                                  // poll the balance while paying, and for a while after the window closes
+function shopWatch(w) {                                  // poll the balance while paying, and for a while after the payment tab closes
   clearInterval(SHOP.poll); const start = SHOP.n + SHOP.umas.length, t0 = Date.now(); let closedAt = 0;
   SHOP.poll = setInterval(async () => {
     if (w && w.closed && !closedAt) closedAt = Date.now();
