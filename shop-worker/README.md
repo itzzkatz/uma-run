@@ -21,6 +21,11 @@ game ──> Worker /me (balance + paid umas to restore)   game ──> Worker /
 - Secrets `XSOLLA_API_KEY` and `XSOLLA_WEBHOOK_SECRET` are set on the Worker. The plain-text settings below are built
   into `src/index.js` as defaults, so no variables are needed; add one with the same name to override it
   (for example `SANDBOX` = `false` once Xsolla approves real payments).
+- `https://umarun.space/` (and `www.`) is the buy-capsule version of the game too. Workers routes `umarun.space/*` and
+  `www.umarun.space/*` (plus exact `/` and `/index.html` routes, all **fail open**) send the site to this Worker, which
+  answers only the home page (any query string), `/capsule/` and `/xsolla/webhook`; every other path is passed straight
+  through to the `uma-run` site Worker. If GitHub Pages can't be reached, or the Worker fails or runs out of its daily
+  free requests, visitors get the site's own home page as before. To undo, delete those routes.
 - `https://umarun.space/capsule/` is the buy-capsule version of the game. A Workers route `umarun.space/capsule*`
   sends it to this Worker, which serves `capsule/index.html` from GitHub Pages (cached 5 minutes). Everything else the
   page loads (`vendor/` three.js modules, icons, manifest) is the main site's own copy. `/capsule/sw.js` is a separate

@@ -158,4 +158,37 @@ await ok('/capsule/ serves the buy-capsule game, site files come from the main s
   assert.equal((await call('/capsule/capsule/')).status, 404);
   assert.equal((await call('/capsule/', { method: 'POST', raw: '{}' })).status, 405);
 });
+await ok('home page on umarun.space is the buy-capsule game; the shop host still answers /health', async () => {
+  const home = (host, path = '/') => worker.fetch(new Request('https://' + host + path), env, {});
+  for (const host of ['umarun.space', 'www.umarun.space']) { const r = await home(host); assert.equal(r.status, 200); assert.match(await r.text(), /UMA_SHOP/); }
+  assert.match(await (await home('umarun.space', '/index.html')).text(), /UMA_SHOP/);
+  assert.match(await (await home('umarun.space', '/?fbclid=abc&utm_source=x')).text(), /UMA_SHOP/);       // shared links with tracking parameters
+  const realFetch = globalThis.fetch; const passed = [];
+  globalThis.fetch = async (u, init) => { if (u instanceof Request) { passed.push(u.method + ' ' + new URL(u.url).pathname); return new Response('site'); } return realFetch(u, init); };
+  try {
+    for (const p of ['/vendor/three.module.js', '/ads.txt', '/sw.js', '/me', '/health', '/xsolla/other']) assert.equal(await (await home('umarun.space', p)).text(), 'site');
+    assert.equal(await (await worker.fetch(new Request('https://umarun.space/', { method: 'OPTIONS' }), env, {})).text(), 'site');
+    assert.deepEqual(passed, ['GET /vendor/three.module.js', 'GET /ads.txt', 'GET /sw.js', 'GET /me', 'GET /health', 'GET /xsolla/other', 'OPTIONS /']);
+  } finally { globalThis.fetch = realFetch; }
+  assert.equal((await (await home('uma-run-shop.example.workers.dev')).json()).service, 'uma-run-shop');
+});
+await ok('home page falls back to the site itself when GitHub Pages is down', async () => {
+  const realFetch = globalThis.fetch; let passedThrough = null;
+  globalThis.fetch = async (u, init) => { if (String(u).startsWith('https://itzzkatz.github.io/')) return new Response('down', { status: 503 }); if (u instanceof Request) { passedThrough = u.url; return new Response('original home page'); } return realFetch(u, init); };
+  try { const r = await worker.fetch(new Request('https://umarun.space/'), env, {}); assert.equal(await r.text(), 'original home page'); assert.equal(passedThrough, 'https://umarun.space/'); }
+  finally { globalThis.fetch = realFetch; }
+  globalThis.fetch = async (u, init) => { if (u instanceof Request) { passedThrough = u.method + ' ' + u.url; return new Response(null, { status: 405 }); } return realFetch(u, init); };
+  try { const r = await worker.fetch(new Request('https://umarun.space/', { method: 'POST', body: '{}' }), env, {}); assert.equal(r.status, 405); assert.equal(passedThrough, 'POST https://umarun.space/'); }
+  finally { globalThis.fetch = realFetch; }
+  globalThis.fetch = async u => String(u).startsWith('https://itzzkatz.github.io/') ? new Response('down', { status: 503 }) : realFetch(u);
+  try { assert.equal((await call('/capsule/')).status, 502); } finally { globalThis.fetch = realFetch; }
+});
+await ok('signed Xsolla notices sent to umarun.space/xsolla/webhook are handled the same', async () => {
+  const raw = JSON.stringify({ notification_type: 'user_validation', user: { id: 'alice' } });
+  const sig = 'Signature ' + createHash('sha1').update(raw + SECRET).digest('hex');
+  const r = await worker.fetch(new Request('https://umarun.space/xsolla/webhook', { method: 'POST', body: raw, headers: { authorization: sig, 'content-type': 'application/json' } }), env, {});
+  assert.equal(r.status, 200);
+  const bad = await worker.fetch(new Request('https://umarun.space/xsolla/webhook', { method: 'POST', body: raw, headers: { authorization: 'Signature 00' } }), env, {});
+  assert.equal((await bad.json()).error.code, 'INVALID_SIGNATURE');
+});
 console.log(`\n${passed} tests passed`);

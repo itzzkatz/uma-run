@@ -5,6 +5,8 @@
 //   POST /open  { uma }      (signed in) -> { ok, capsules, umas }                              spend one paid capsule on an uma
 //   POST /xsolla/webhook     (Xsolla)    -> user_validation, order_paid, order_canceled         signed with the webhook secret
 //   GET  /capsule/           (anyone)    -> the game with the capsule shop (umarun.space/capsule/ through a Workers route)
+//   GET  / on umarun.space   (anyone)    -> the same page as the site's home page (Workers routes umarun.space/* and www.umarun.space/*;
+//                                           every other path on the site is passed through to the site untouched)
 //
 // "Signed in" means an `Authorization: Bearer <Firebase ID token>` header from the game's existing Firebase accounts.
 // Capsules are only ever credited by a signed order_paid webhook, once per Xsolla order.
@@ -49,6 +51,7 @@ export default {
   async fetch(request, rawEnv, ctx) {
     const env = withDefaults(rawEnv);
     const url = new URL(request.url);
+    if (isSiteHost(url, env)) return siteRequest(request, url, env);
     const cors = corsHeaders(request, env);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
     try {
@@ -82,15 +85,37 @@ function corsHeaders(request, env) {
   return h;
 }
 
+// ------------------------------------------------------------------ the buy-capsule game page (published on GitHub Pages, cached at the edge)
+async function gamePage(request, env) {
+  const r = await fetch(env.CAPSULE_PAGE_URL, { cf: { cacheTtl: 300, cacheEverything: true } }).catch(() => null);
+  if (!r || !r.ok) return null;
+  return new Response(request.method === 'HEAD' ? null : r.body, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=60' } });
+}
+const isSiteHost = (url, env) => { const h = new URL(env.SITE_ORIGIN).hostname; return url.hostname === h || url.hostname === 'www.' + h; };
+// Requests on umarun.space / www.umarun.space. Only the home page, /capsule/ and the Xsolla webhook are this Worker's;
+// everything else (game files, ads.txt, the offline worker, ...) goes to the site exactly as before.
+async function siteRequest(request, url, env) {
+  const get = request.method === 'GET' || request.method === 'HEAD';
+  try {
+    if ((url.pathname === '/' || url.pathname === '/index.html') && get) return (await gamePage(request, env)) || fetch(request);   // GitHub Pages down: the site's own page
+    if (url.pathname === '/capsule' || url.pathname.startsWith('/capsule/')) return await capsulePage(request, url, env);
+    if (url.pathname === '/xsolla/webhook' && request.method === 'POST') return await webhook(request, env);
+  } catch (e) {
+    console.error('site error', e && e.stack || e);
+    if (e instanceof HttpError) return json({ error: e.code, message: e.message }, e.status);
+    return json({ error: 'server_error' }, 500);
+  }
+  return fetch(request);
+}
+
 // ------------------------------------------------------------------ /capsule/: the buy-capsule version of the game on the player's own domain
 async function capsulePage(request, url, env) {
   if (request.method !== 'GET' && request.method !== 'HEAD') return new Response('Method not allowed', { status: 405, headers: { allow: 'GET, HEAD' } });
   if (url.pathname === '/capsule') return Response.redirect(url.origin + '/capsule/' + url.search, 301);
   const rest = url.pathname.slice('/capsule/'.length);
   if (rest === '' || rest === 'index.html') {
-    const r = await fetch(env.CAPSULE_PAGE_URL, { cf: { cacheTtl: 300, cacheEverything: true } });
-    if (!r.ok) return new Response('The capsule shop page is not available right now. Try again in a minute.', { status: 502, headers: { 'content-type': 'text/plain; charset=utf-8' } });
-    return new Response(request.method === 'HEAD' ? null : r.body, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=60' } });
+    const page = await gamePage(request, env);
+    return page || new Response('The capsule shop page is not available right now. Try again in a minute.', { status: 502, headers: { 'content-type': 'text/plain; charset=utf-8' } });
   }
   if (rest === 'sw.js') return new Response(request.method === 'HEAD' ? null : CAPSULE_SW, { headers: { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-cache' } });
   // everything else the page loads (vendor/ modules, icons, manifest) is the main site's own copy
