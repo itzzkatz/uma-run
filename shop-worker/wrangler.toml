@@ -1,0 +1,21 @@
+name = "uma-run-shop"
+main = "src/index.js"
+compatibility_date = "2025-11-01"
+
+[vars]
+XSOLLA_PROJECT_ID = "320064"
+FIREBASE_PROJECT_ID = "umarun-b6d8a"
+CAPSULE_SKU = "uma_capsule"
+UMA_IDS = "goldship,tamamo,seiun,teio,oguri,digital,tachyon,vivlos,pandora"
+PRICE_LABEL = "$1.99"
+SANDBOX = "true"          # test payments only. Set to "false" after Xsolla approves your project for real payments.
+ALLOWED_ORIGINS = "*"      # or a comma list of the sites that host the game, e.g. "https://itzzkatz.github.io"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "uma-run-shop"
+database_id = "4835945b-24a9-4b5c-8906-894da6dd6bbe"
+
+# Secrets (set with `npx wrangler secret put NAME` or in the dashboard, never here):
+#   XSOLLA_API_KEY         Xsolla Publisher Account > Company settings > API keys
+#   XSOLLA_WEBHOOK_SECRET  Xsolla Publisher Account > your project > Project settings > Webhooks > secret key
